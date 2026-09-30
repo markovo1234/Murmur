@@ -129,6 +129,7 @@ class BleTransport(
     private val candidates = HashMap<String, Candidate>()
     private val clients = HashMap<String, ClientConnection>()
     private val servers = HashMap<String, ServerConnection>()
+    private val serverMtu = HashMap<String, Int>()
     private val failures = HashMap<String, Int>()
     private val retryAt = HashMap<String, Long>()
     private val ignoredUntil = HashMap<String, Long>()
@@ -219,6 +220,7 @@ class BleTransport(
         servers.values.toList().forEach { closeServer(it, "radio down", cancel = false) }
         clients.clear()
         servers.clear()
+        serverMtu.clear()
         candidates.clear()
         retryAt.clear()
         failures.clear()
@@ -920,6 +922,10 @@ class BleTransport(
     private inner class ServerConnection(device: BluetoothDevice) : Connection(device, LinkRole.SERVER) {
         override val opName = "notify"
 
+        init {
+            serverMtu[address]?.let { mtu = it }
+        }
+
         override fun writeFragment(bytes: ByteArray): Boolean {
             val server = gattServer ?: return false
             val ch = serverCharacteristic ?: return false
@@ -1052,6 +1058,8 @@ class BleTransport(
 
         override fun onMtuChanged(device: BluetoothDevice, mtu: Int) {
             scope.launch {
+                // Remember it even if the connection entry doesn't exist yet (callback order varies).
+                serverMtu[device.address] = mtu
                 servers[device.address]?.let {
                     it.mtu = mtu
                     log("${it.id}: MTU $mtu")
@@ -1127,6 +1135,7 @@ class BleTransport(
             if (servers[address]?.closed != false) servers[address] = ServerConnection(device)
             log("inbound connection ${address.takeLast(5)}")
         } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+            serverMtu.remove(address)
             servers.remove(address)?.let { closeServer(it, "disconnected (status $status)", cancel = false) }
         }
         scheduleAdvertiseRestart()

@@ -6,6 +6,7 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import app.murmur.ble.BlePermissions
+import app.murmur.ble.SystemStatus
 import app.murmur.core.Clock
 import app.murmur.core.crypto.Identity
 import app.murmur.data.ChatRepository
@@ -57,6 +58,7 @@ class AppContainer(val app: Application) {
     val identity: StateFlow<Identity?> = _identity.asStateFlow()
 
     val notifier = Notifier(app)
+    val system = SystemStatus(app)
     val mesh = MeshController(app, log)
     val demo = DemoMode(db, clock, appScope, log)
     val peers = PeerRepository(db, mesh.peers, mesh.rssi, demo.peers, appScope)
@@ -94,6 +96,14 @@ class AppContainer(val app: Application) {
         appScope.launch {
             settings.settings.map { it.demoMode }.distinctUntilChanged().collect { on -> if (on) demo.start() else demo.stop() }
         }
+        appScope.launch {
+            // Onboarding just finished → start the mesh.
+            settingsState.filterNotNull().map { it.onboardingDone }.distinctUntilChanged().collect { if (it) startMeshIfReady() }
+        }
+        appScope.launch {
+            // Permissions granted / Bluetooth turned on while visible → bring the mesh up.
+            system.state.collect { if (it.bluetoothPermissions && isAppInForeground) startMeshIfReady() }
+        }
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) = onAppForeground()
             override fun onStop(owner: LifecycleOwner) = onAppBackground()
@@ -102,6 +112,7 @@ class AppContainer(val app: Application) {
 
     private fun onAppForeground() {
         isAppInForeground = true
+        system.refresh()
         mesh.setForeground(true)
         appScope.launch { startMeshIfReady() }
     }
