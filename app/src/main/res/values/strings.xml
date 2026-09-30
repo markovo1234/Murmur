@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="app_name">Murmur</string>
+    <string name="channel_service">Mesh status</string>
+    <string name="channel_dm">Direct messages</string>
+    <string name="channel_nearby">#nearby</string>
+    <string name="service_title" tools:ignore="PluralsCandidate">Murmur is active · %1$d nearby</string>
+    <string name="service_text">Relaying messages over Bluetooth</string>
+    <string name="action_stop">Stop</string>
+    <string name="nearby_notification_title">%1$s in #nearby</string>
+</resources>
