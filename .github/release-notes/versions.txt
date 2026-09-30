@@ -1,0 +1,8 @@
+# Every published version and the commit it is built from.
+# The Release workflow (run manually with "all") creates any missing tags from this list.
+# tag     commit
+v1.0.0 c6d90b1608e390f396c39d7b0ef129d31109ab0b
+v1.1.0 69778f9da46882399f4582d0afbe44497aa3892f
+v1.2.0 e9ca3acedf811722bc5ba3d7ecaa3890243169aa
+v1.3.0 7506bb531a6ee9de8f0ec01520d1fc6777e4ed43
+v1.3.1 46bcf6493df066ec2057f5da19de2d4618f044d0

@@ -200,21 +200,20 @@ replies, reactions, waves and a demo channel without other phones.
 
 ## Publishing a release
 
-Each release is built from a git tag by `.github/workflows/release.yml`, which attaches
-`Murmur-vX.Y.Z.apk` and `Murmur-vX.Y.Z-debug.apk` and uses `.github/release-notes/vX.Y.Z.md` as the
-release notes. To publish a new version:
+Releases are built by `.github/workflows/release.yml`. Each one gets `Murmur-vX.Y.Z.apk` and
+`Murmur-vX.Y.Z-debug.apk` attached, with `.github/release-notes/vX.Y.Z.md` as its notes. Every
+version and the commit it's built from is listed in `.github/release-notes/versions.txt`.
+
+**Publish from the browser (no terminal needed):** Actions → **Release** → **Run workflow** → enter a
+version (e.g. `v1.3.1`) or **`all`** → Run. Missing tags are created on the listed commits. Releases
+that already exist get their APKs and notes refreshed.
+
+**To add a new version:**
 
 1. Bump `versionCode` / `versionName` in `app/build.gradle.kts`.
-2. Write `.github/release-notes/vX.Y.Z.md` (and `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt`).
-3. Merge to `main`, then tag it:
-
-```sh
-git tag v1.3.1
-git push origin v1.3.1
-```
-
-To (re)build the release for an existing tag, run the **Release** workflow manually from the Actions
-tab and enter the tag.
+2. Write `.github/release-notes/vX.Y.Z.md` and `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt`.
+3. Merge to `main`, then either push a tag (`git tag vX.Y.Z && git push origin vX.Y.Z`) or add the
+   version and its commit to `versions.txt` and run the workflow.
 
 The same source is suitable for **F-Droid**: it has no proprietary dependencies, no Google Play
 services and no `INTERNET` permission. Listing text lives in `fastlane/metadata/`. F-Droid builds and
