@@ -41,6 +41,7 @@ class PacketCodecTest {
             PeerId.BROADCAST, 7, PacketId.random(random), BASE_TIME + 4,
         ),
         PacketCodec.create(alice.signing, Payload.Unknown(99, byteArrayOf(1, 2, 3)), PeerId.BROADCAST, 7, PacketId.random(random), BASE_TIME + 5),
+        PacketCodec.create(alice.signing, Payload.Call(MessageId.random(random), 3, ByteArray(37) { 7 }), bob.peerId, 2, PacketId.random(random), BASE_TIME + 6),
     )
 
     @Test

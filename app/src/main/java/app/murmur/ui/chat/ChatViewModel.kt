@@ -3,6 +3,7 @@ package app.murmur.ui.chat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.murmur.AppContainer
+import app.murmur.call.StartCallResult
 import app.murmur.core.mesh.DeliveryStatus
 import app.murmur.core.protocol.PeerId
 import app.murmur.core.text.Replies
@@ -338,6 +339,21 @@ class ChatViewModel(private val c: AppContainer, private val conversationId: Str
 
     fun retract(messageId: String) {
         viewModelScope.launch { c.chats.retract(conversationId, messageId) }
+    }
+
+    fun call() {
+        val id = peerId ?: return
+        viewModelScope.launch {
+            val problem = when (c.calls.startCall(id)) {
+                StartCallResult.STARTED -> null
+                StartCallResult.ALREADY_IN_CALL -> "You're already in a call."
+                StartCallResult.MESH_OFF -> "The mesh is off, so calls can't go out."
+                StartCallResult.OFFLINE -> "${state.value.title} is offline. Calls need them in range or through the mesh."
+                StartCallResult.BLOCKED -> "Unblock them to call."
+                StartCallResult.DEMO -> "Demo people can't take calls. Try it with a friend's phone."
+            }
+            problem?.let { _events.tryEmit(it) }
+        }
     }
 
     fun wave() {

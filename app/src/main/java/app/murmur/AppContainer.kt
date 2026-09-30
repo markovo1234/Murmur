@@ -6,6 +6,7 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import app.murmur.ble.BlePermissions
+import app.murmur.call.CallManager
 import app.murmur.ble.SystemStatus
 import app.murmur.core.Clock
 import app.murmur.core.crypto.Identity
@@ -76,6 +77,8 @@ class AppContainer(val app: Application) {
     )
 
     val appLock = AppLock(settingsState, settings, clock)
+
+    val calls = CallManager(this)
 
     val bleSupported: Boolean =
         BlePermissions.hasBleHardware(app) && app.getSystemService(BluetoothManager::class.java)?.adapter != null
@@ -150,6 +153,7 @@ class AppContainer(val app: Application) {
     /** Erases messages, settings and identity keys. The UI then returns to onboarding. */
     suspend fun panicWipe() {
         log.log("PANIC", "panic wipe")
+        calls.hangup()
         demo.stop()
         val running = mesh.runtime.value
         mesh.stop()

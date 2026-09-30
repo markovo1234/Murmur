@@ -15,6 +15,9 @@ enum class PacketType(val code: Int) {
     /** Since 1.1: #nearby extras (reactions, retractions, SOS) and named channels. */
     ROOM(5),
 
+    /** Since 1.2: one chunk of encrypted call audio, addressed to one peer. */
+    CALL(6),
+
     /** A type this version doesn't know. Verified and relayed, never delivered (forward compatibility). */
     UNKNOWN(0);
 
@@ -81,6 +84,20 @@ sealed interface Payload {
 
         override fun hashCode(): Int = channel.hashCode() * 31 + body.contentHashCode()
         override fun toString(): String = "Room(#$channel, ${if (encrypted) "encrypted" else "plain"}, ${body.size} bytes)"
+    }
+
+    /**
+     * CALL (1.2): ~80 ms of voice for [callId], sealed with the call's session key (see
+     * [app.murmur.core.crypto.CallCrypto]). [seq] counts up from 0 per direction.
+     */
+    class Call(val callId: MessageId, val seq: Long, val sealed: ByteArray) : Payload {
+        override val type: PacketType get() = PacketType.CALL
+
+        override fun equals(other: Any?): Boolean = other is Call && callId == other.callId && seq == other.seq &&
+            sealed.contentEquals(other.sealed)
+
+        override fun hashCode(): Int = callId.hashCode() * 31 + seq.hashCode()
+        override fun toString(): String = "Call(${callId.toHex().take(8)} #$seq, ${sealed.size} bytes)"
     }
 
     /** A packet type this version doesn't understand, kept verbatim so it can be relayed. */
@@ -250,7 +267,7 @@ object PacketCodec {
 
         if (senderId.isBroadcast) throw DecodeException("broadcast sender")
         when (type) {
-            PacketType.PRIVATE -> if (recipientId.isBroadcast) throw DecodeException("private to broadcast")
+            PacketType.PRIVATE, PacketType.CALL -> if (recipientId.isBroadcast) throw DecodeException("$type to broadcast")
             PacketType.UNKNOWN -> Unit
             else -> if (!recipientId.isBroadcast) throw DecodeException("$type must be broadcast")
         }
@@ -288,6 +305,13 @@ object PacketCodec {
                 w.u8(if (payload.encrypted) ROOM_FLAG_ENCRYPTED else 0)
                 w.string8(payload.channel)
                 w.bytes(payload.body)
+            }
+            is Payload.Call -> {
+                require(payload.seq in 0..MAX_CALL_SEQ) { "bad seq" }
+                require(payload.sealed.size >= DmCrypto.TAG_SIZE + 1) { "empty audio" }
+                w.bytes(payload.callId.toBytes())
+                w.u32(payload.seq.toInt())
+                w.bytes(payload.sealed)
             }
             is Payload.Unknown -> w.bytes(payload.bytes)
         }
@@ -331,11 +355,20 @@ object PacketCodec {
                 if (body.isEmpty() || (encrypted && body.size < MIN_ENCRYPTED_ROOM)) throw DecodeException("bad room body")
                 Payload.Room(channel, encrypted, body)
             }
+            PacketType.CALL -> {
+                val callId = MessageId.fromBytes(r.bytes(MessageId.SIZE))
+                val seq = r.u32().toLong() and MAX_CALL_SEQ
+                val sealed = r.rest()
+                if (sealed.size < DmCrypto.TAG_SIZE + 1) throw DecodeException("empty audio")
+                Payload.Call(callId, seq, sealed)
+            }
             PacketType.UNKNOWN -> throw DecodeException("unknown type")
         }
         r.expectEnd()
         return payload
     }
+
+    const val MAX_CALL_SEQ: Long = 0xFFFF_FFFFL
 
     private const val MIN_ENCRYPTED_ROOM = DmCrypto.NONCE_SIZE + DmCrypto.TAG_SIZE + RoomContent.MIN_SIZE
 

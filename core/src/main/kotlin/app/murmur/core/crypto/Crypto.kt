@@ -202,6 +202,41 @@ object ChannelCrypto {
     }
 }
 
+/**
+ * Call audio (1.2). The caller picks a random 32-byte session key and sends it inside the end-to-end
+ * encrypted CALL_OFFER. Each audio chunk is ChaCha20-Poly1305 with nonce = direction (1 = from the
+ * caller, 2 = from the callee) || 7 zero bytes || seq (u32), so the two directions never reuse a
+ * nonce, and AAD = callId || senderId || recipientId || seq.
+ */
+object CallCrypto {
+    const val KEY_SIZE: Int = 32
+
+    fun newKey(random: RandomSource): ByteArray = random.nextBytes(KEY_SIZE)
+
+    fun nonce(fromCaller: Boolean, seq: Long): ByteArray {
+        val n = ByteArray(DmCrypto.NONCE_SIZE)
+        n[0] = if (fromCaller) 1 else 2
+        for (i in 0 until 4) n[DmCrypto.NONCE_SIZE - 4 + i] = (seq ushr (24 - 8 * i)).toByte()
+        return n
+    }
+
+    fun aad(callId: ByteArray, senderId: PeerId, recipientId: PeerId, seq: Long): ByteArray {
+        val s = ByteArray(4) { i -> (seq ushr (24 - 8 * i)).toByte() }
+        return callId + senderId.toBytes() + recipientId.toBytes() + s
+    }
+
+    fun seal(key: ByteArray, fromCaller: Boolean, seq: Long, aad: ByteArray, plaintext: ByteArray): ByteArray {
+        require(key.size == KEY_SIZE)
+        return ChaCha.aead(true, key, nonce(fromCaller, seq), aad, plaintext) ?: error("encryption failed")
+    }
+
+    /** Null if the key, direction, seq, AAD or bytes don't match. Never throws. */
+    fun open(key: ByteArray, fromCaller: Boolean, seq: Long, aad: ByteArray, sealed: ByteArray): ByteArray? {
+        if (key.size != KEY_SIZE || sealed.size < DmCrypto.TAG_SIZE) return null
+        return ChaCha.aead(false, key, nonce(fromCaller, seq), aad, sealed)
+    }
+}
+
 /** App-lock PINs are stored only as a salted PBKDF2-HMAC-SHA256 hash. */
 object PinHasher {
     const val ITERATIONS: Int = 60_000

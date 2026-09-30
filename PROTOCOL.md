@@ -11,6 +11,9 @@ packet type (`0x05`) for #nearby extras and channels, four new DM kinds, relayin
 types, and tolerance for trailing bytes in payloads so later versions can append fields. Sections
 marked *(1.1)* describe them; see [Compatibility](#compatibility) for how 1.0 phones behave.
 
+**App 1.2 additions**: voice calls — the CALL packet type (`0x06`) and three more DM kinds. Sections
+marked *(1.2)*.
+
 ## Identity
 
 | Item | Definition |
@@ -97,7 +100,7 @@ Inner plaintext:
 
 | Size | Field |
 |---:|---|
-| 1 | kind: `1` TEXT, `2` DELIVERED, `3` READ, `4` TYPING; *(1.1)* `5` REACTION, `6` RETRACT, `7` WAVE, `8` TIMER |
+| 1 | kind: `1` TEXT, `2` DELIVERED, `3` READ, `4` TYPING; *(1.1)* `5` REACTION, `6` RETRACT, `7` WAVE, `8` TIMER; *(1.2)* `9` CALL_OFFER, `10` CALL_ANSWER, `11` CALL_END |
 | 16 | `messageId` (TEXT: stable across resends; receipts: the acknowledged message) |
 | 32 | sender's X25519 public key (so the recipient can always reply) |
 | 2 + n | body: u16 length + UTF-8 (TEXT: 1–1000 bytes; others: see below) |
@@ -112,6 +115,9 @@ Relays forward PRIVATE packets they cannot read.
 | RETRACT | one of **my own** messages | empty — "delete for everyone" |
 | WAVE | random | empty — a 👋 nudge |
 | TIMER | random | disappearing-message time for this chat in seconds, decimal ("0" = off, max 2,419,200) |
+| CALL_OFFER *(1.2)* | the call id | `1 amrnb <64 hex digits>`: version, codec, the call's 32-byte session key |
+| CALL_ANSWER *(1.2)* | the call id | `ringing`, `accept`, `decline`, `busy` or `unsupported` |
+| CALL_END *(1.2)* | the call id | `hangup`, `cancel`, `timeout` or `failed` |
 
 **Replies** are ordinary TEXT whose first line is `> Author: snippet` (snippet ≤ 80 characters)
 followed by a newline and the reply, so 1.0 phones show them as a readable quote.
@@ -151,13 +157,41 @@ Room content:
 * #nearby plain text still uses PUBLIC (`0x02`) so 1.0 phones see it; only REACTION, RETRACT and SOS
   in #nearby use ROOM.
 
+### `0x06` CALL *(1.2)*
+
+Addressed to one peer (a broadcast CALL packet is malformed). About 80 ms of voice.
+
+| Size | Field |
+|---:|---|
+| 16 | call id (the CALL_OFFER's `messageId`) |
+| 4 | `seq` (u32, counts up from 0 in each direction) |
+| rest | ChaCha20-Poly1305 ciphertext ‖ 16-byte tag (≥ 17 bytes) |
+
+* Key: the 32-byte session key from CALL_OFFER (only the two phones have it: DMs are end-to-end
+  encrypted). Nonce: direction (`1` from the caller, `2` from the callee) ‖ 7 zero bytes ‖ `seq`
+  (u32). AAD: call id ‖ `senderId` ‖ `recipientId` ‖ `seq`.
+* Plaintext: AMR-NB frames in storage format (RFC 4867 §5: a header byte, then the speech bits),
+  back to back. Murmur 1.2 sends 4 frames of mode MR795 (7.95 kbit/s): 84 bytes per packet, about
+  12.5 packets a second each way.
+* Senders pick `ttl` = the hop distance to the peer (1 for a direct link, so nobody relays it; one
+  spare hop otherwise) so audio doesn't flood the mesh. Audio is never resent; the receiver buffers
+  ~240 ms, reorders by `seq`, and plays silence for gaps.
+
+**Call flow:** caller sends CALL_OFFER (repeated every 2.5 s until any CALL_ANSWER, up to 35 s) →
+callee answers `ringing` → `accept` (repeated until audio arrives) → both stream CALL packets → either
+side sends CALL_END (twice). A caller that receives audio before `accept` treats the call as
+accepted. If both phones call each other at once, the call from the lower `peerId` wins. After 15 s
+without audio a call ends as lost.
+
 ## Mesh rules
 
 * Remember the last 10,000 `packetId`s (including one's own). Duplicates are dropped.
 * A new valid packet is **delivered** if it is broadcast or addressed to me.
 * It is **relayed** if it is not addressed to me, relaying is enabled, and `ttl > 1`: forwarded with
   `ttl - 1` on every ready link except the one it arrived on.
-* `hops = 8 - received ttl` (1 = heard directly).
+* `hops = 8 - received ttl` (1 = heard directly) for ANNOUNCE, which always starts at ttl 7. Other
+  packets may start lower (short reach, calls), so for them `8 - ttl` is only an upper bound: 1.2
+  shows the smaller of that and the hop count from the sender's last ANNOUNCE (1 on a direct link).
 * Peer status: **nearby** (direct link), **via mesh** (heard through relays in the last 90 s),
   **offline** (silent for 90 s, or sent LEAVE).
 
@@ -180,6 +214,7 @@ Room content:
 | a reply | shows it as text with the `> Author: …` quote line |
 | DM REACTION / RETRACT / WAVE / TIMER | ignores it (not shown; no receipt) |
 | ROOM (reactions, SOS, channels) | drops it and doesn't relay it — the mesh still carries it through 1.1 phones |
+| CALL_OFFER *(1.2)* | ignores it; the caller hears it ring out ("No answer"). 1.1 phones relay CALL packets but can't take calls |
 | trailing bytes / unknown types from a future version | 1.0 drops them; 1.1 accepts or relays them |
 
 ## Safety number

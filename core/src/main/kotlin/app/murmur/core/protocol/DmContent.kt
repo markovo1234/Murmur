@@ -24,7 +24,21 @@ enum class DmKind(val code: Int) {
     WAVE(7),
 
     /** Disappearing messages for this chat: body = seconds as decimal text ("0" = off). */
-    TIMER(8);
+    TIMER(8),
+
+    // Since 1.2: voice calls. messageId = the call id. Older versions ignore these.
+
+    /** Start a call: body = [CallSignal.offerBody] (codec + the call's session key). */
+    CALL_OFFER(9),
+
+    /** Callee's reply: body = [CallSignal.Answer] wire name (ringing, accept, decline, busy). */
+    CALL_ANSWER(10),
+
+    /** Either side hangs up / cancels: body = [CallSignal.EndReason] wire name. */
+    CALL_END(11);
+
+    /** Control kinds are sent once and never answered with receipts. */
+    val isControl: Boolean get() = code >= REACTION.code
 
     companion object {
         fun fromCode(code: Int): DmKind? = entries.firstOrNull { it.code == code }

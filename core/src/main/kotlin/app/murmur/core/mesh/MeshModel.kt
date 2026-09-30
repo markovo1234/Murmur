@@ -73,7 +73,10 @@ sealed interface MeshEvent {
         val hops: Int,
     ) : MeshEvent
 
-    /** A DM reaction, retraction, wave or disappearing-messages timer. */
+    /** One chunk of call audio addressed to me (still sealed with the call key). */
+    class CallAudio(val senderId: PeerId, val callId: MessageId, val seq: Long, val sealed: ByteArray) : MeshEvent
+
+    /** A DM reaction, retraction, wave, disappearing-messages timer or call signal. */
     data class DirectControl(
         val senderId: PeerId,
         val kind: DmKind,

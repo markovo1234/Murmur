@@ -4,6 +4,7 @@ import app.murmur.AppContainer
 import app.murmur.ble.BleTransport
 import app.murmur.core.SecureRandomSource
 import app.murmur.core.crypto.Identity
+import app.murmur.core.mesh.MeshEvent
 import app.murmur.core.mesh.MeshNode
 import app.murmur.core.mesh.Profile
 import app.murmur.core.protocol.PeerId
@@ -49,7 +50,11 @@ class MeshRuntime(private val c: AppContainer, identity: Identity, profile: Prof
     fun start(foreground: Boolean) {
         // Subscribe before the node starts so no event is missed.
         workScope.launch(start = CoroutineStart.UNDISPATCHED) {
-            node.events.collect { c.chats.onMeshEvent(it) }
+            node.events.collect { if (it !is MeshEvent.CallAudio) c.chats.onMeshEvent(it) }
+        }
+        // Calls get their own collector so database work never holds up audio.
+        workScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            node.events.collect { c.calls.onMeshEvent(it) }
         }
         node.start(transport.linkEvents)
         transport.setForeground(foreground)

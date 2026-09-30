@@ -419,7 +419,7 @@ class ChatRepository(
                     hops = event.hops,
                 )
                 is MeshEvent.DirectControl -> receiveDirectControl(event.senderId, event.kind, event.messageId.toHex(), event.body)
-                is MeshEvent.LinkIdentified -> Unit
+                is MeshEvent.LinkIdentified, is MeshEvent.CallAudio -> Unit
             }
         } catch (e: Exception) {
             log.log("CHAT", "failed to store ${event.javaClass.simpleName}: ${e.javaClass.simpleName} ${e.message}")
@@ -688,6 +688,12 @@ class ChatRepository(
         if (db.conversations().get(id) == null) {
             db.conversations().upsert(ConversationEntity(id, peerId, "", clock.now(), 0))
         }
+    }
+
+    /** A call-history line in the DM ("📞 Outgoing call · 2:31", "📞 Missed call"). */
+    suspend fun logCall(peer: PeerId, text: String, unread: Boolean) {
+        val conversation = peer.toHex()
+        insertSystem(conversation, conversation, text, unread = unread && openConversation.value != conversation)
     }
 
     /** A centered system line ("Luna waved at you 👋"). */

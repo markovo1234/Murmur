@@ -101,6 +101,7 @@ class BleTransport(
     private var radioUp = false
     private var foreground = true
     private var powerSave = false
+    private var callMode = false
     private var receiverRegistered = false
 
     private var gattServer: BluetoothGattServer? = null
@@ -207,6 +208,27 @@ class BleTransport(
                 restartAdvertising()
             }
         }
+    }
+
+    /**
+     * During a call: ask for the shortest connection interval on links we are the client of (the other
+     * phone does the same on its side), so ~12 audio packets a second fit. Back to balanced afterwards.
+     */
+    fun setCallMode(on: Boolean) {
+        scope.launch {
+            if (callMode == on) return@launch
+            callMode = on
+            log("call mode ${if (on) "on" else "off"}")
+            clients.values.forEach { applyConnectionPriority(it) }
+        }
+    }
+
+    private fun applyConnectionPriority(conn: ClientConnection) {
+        val g = conn.gatt ?: return
+        if (!BlePermissions.canConnect(context)) return
+        g.requestConnectionPriority(
+            if (callMode) BluetoothGatt.CONNECTION_PRIORITY_HIGH else BluetoothGatt.CONNECTION_PRIORITY_BALANCED,
+        )
     }
 
     private val scanMode: Int
@@ -850,6 +872,8 @@ class BleTransport(
                 log("$id: send queue full, dropping a packet")
                 return
             }
+            // Late audio is useless: drop call packets rather than let the queue (and the delay) grow.
+            if (queuedPackets >= MAX_QUEUED_CALL_PACKETS && packet.size > 1 && packet[1].toInt() == CALL_PACKET_TYPE) return
             val fragments = Fragmenter.fragment(packet, Fragmenter.chunkSizeForMtu(mtu), streamCounter++)
             queuedPackets++
             fragments.forEachIndexed { i, fragment ->
@@ -1036,6 +1060,7 @@ class BleTransport(
         failures.remove(conn.address)
         retryAt.remove(conn.address)
         log("${conn.id}: ready (client, MTU ${conn.mtu})")
+        if (callMode) applyConnectionPriority(conn)
         events.trySend(LinkEvent.Up(conn))
         publish()
     }
@@ -1293,6 +1318,8 @@ class BleTransport(
         const val CANDIDATE_TTL_MILLIS = 60_000L
         const val SCAN_RESTART_MILLIS = 10 * 60_000L
         const val MAX_QUEUED_PACKETS = 64
+        const val MAX_QUEUED_CALL_PACKETS = 6
+        const val CALL_PACKET_TYPE = 6
         const val RSSI_ALPHA = 0.3
     }
 }

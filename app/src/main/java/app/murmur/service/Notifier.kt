@@ -15,6 +15,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import app.murmur.MainActivity
 import app.murmur.R
+import app.murmur.call.CallActionReceiver
 import app.murmur.core.protocol.PeerId
 import app.murmur.data.db.NEARBY_CONVERSATION
 
@@ -35,6 +36,14 @@ class Notifier(private val context: Context) {
                     vibrationPattern = longArrayOf(0, 400, 200, 400, 200, 800)
                 },
                 NotificationChannel(CHANNEL_PEOPLE, context.getString(R.string.channel_people), NotificationManager.IMPORTANCE_DEFAULT),
+                // The app plays the ringtone itself (it can loop and follow silent mode); the channel stays quiet.
+                NotificationChannel(CHANNEL_CALLS, context.getString(R.string.channel_calls), NotificationManager.IMPORTANCE_HIGH).apply {
+                    setSound(null, null)
+                    enableVibration(false)
+                },
+                NotificationChannel(CHANNEL_CALL_ONGOING, context.getString(R.string.channel_call_ongoing), NotificationManager.IMPORTANCE_LOW).apply {
+                    setShowBadge(false)
+                },
             ),
         )
     }
@@ -142,6 +151,69 @@ class Notifier(private val context: Context) {
         post(FAVORITE_ID + (conversation.hashCode() and 0xFFFF), n)
     }
 
+    fun showIncomingCall(name: String, emoji: String, hideName: Boolean) {
+        val title = if (hideName) context.getString(R.string.call_incoming_hidden) else context.getString(R.string.call_incoming_title, emoji, name)
+        val n = NotificationCompat.Builder(context, CHANNEL_CALLS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(context.getString(R.string.call_incoming_text))
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setOngoing(true)
+            .setTimeoutAfter(CALL_NOTIFICATION_TIMEOUT)
+            .setContentIntent(openApp(null, CALL_ID))
+            .addAction(0, context.getString(R.string.call_decline), callAction(CallActionReceiver.ACTION_DECLINE))
+            .addAction(0, context.getString(R.string.call_answer), answerCall())
+            .build()
+        post(CALL_ID, n)
+    }
+
+    fun showOngoingCall(name: String, since: Long, hideName: Boolean) {
+        val n = NotificationCompat.Builder(context, CHANNEL_CALL_ONGOING)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(if (hideName) context.getString(R.string.call_ongoing_hidden) else context.getString(R.string.call_ongoing_title, name))
+            .setContentText(context.getString(R.string.call_ongoing_text))
+            .setWhen(since)
+            .setUsesChronometer(true)
+            .setShowWhen(true)
+            .setOngoing(true)
+            .setSilent(true)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setContentIntent(openApp(null, CALL_ID))
+            .addAction(0, context.getString(R.string.call_hang_up), callAction(CallActionReceiver.ACTION_HANG_UP))
+            .build()
+        post(CALL_ID, n)
+    }
+
+    fun showMissedCall(peer: PeerId, name: String, emoji: String, hideName: Boolean) {
+        val conversation = peer.toHex()
+        val n = NotificationCompat.Builder(context, CHANNEL_DM)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(if (hideName) context.getString(R.string.call_missed_hidden) else context.getString(R.string.call_missed_title, emoji, name))
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_MISSED_CALL)
+            .setContentIntent(openApp(conversation, conversation.hashCode()))
+            .build()
+        post(conversation.hashCode(), n)
+    }
+
+    fun cancelCall() = manager.cancel(CALL_ID)
+
+    private fun callAction(action: String): PendingIntent = PendingIntent.getBroadcast(
+        context,
+        action.hashCode(),
+        Intent(context, CallActionReceiver::class.java).setAction(action),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+
+    /** Opens the app, which asks for the microphone if needed and then picks up. */
+    private fun answerCall(): PendingIntent {
+        val intent = Intent(context, MainActivity::class.java)
+            .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .putExtra(MainActivity.EXTRA_ANSWER_CALL, true)
+        return PendingIntent.getActivity(context, CALL_ID + 1, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    }
+
     fun cancelConversation(conversationId: String) = manager.cancel(conversationId.hashCode())
 
     fun cancelAll() = manager.cancelAll()
@@ -172,6 +244,10 @@ class Notifier(private val context: Context) {
         const val CHANNEL_NEARBY = "nearby"
         const val CHANNEL_SOS = "sos_alerts"
         const val CHANNEL_PEOPLE = "people"
+        const val CHANNEL_CALLS = "calls"
+        const val CHANNEL_CALL_ONGOING = "call_ongoing"
+        private const val CALL_ID = 0x43414C4C
+        private const val CALL_NOTIFICATION_TIMEOUT = 45_000L
         private const val SOS_ID = 0x5050000
         private const val FAVORITE_ID = 0x4640000
     }

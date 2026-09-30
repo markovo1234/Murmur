@@ -12,6 +12,7 @@ import app.murmur.core.protocol.MessageId
 import app.murmur.core.protocol.Packet
 import app.murmur.core.protocol.PacketCodec
 import app.murmur.core.protocol.PacketId
+import app.murmur.core.protocol.PacketType
 import app.murmur.core.protocol.Payload
 import app.murmur.core.protocol.PeerId
 import app.murmur.core.protocol.PrivateMessages
@@ -257,8 +258,35 @@ class MeshNode(
      * returns false if the peer's key is unknown or there are no links.
      */
     suspend fun sendDirectControl(to: PeerId, kind: DmKind, messageId: MessageId, body: String = ""): Boolean = onNode {
-        require(kind == DmKind.REACTION || kind == DmKind.RETRACT || kind == DmKind.WAVE || kind == DmKind.TIMER) { "not a control kind" }
+        require(kind.isControl) { "not a control kind" }
         sendControl(to, kind, messageId, body)
+    }
+
+    /**
+     * One chunk of call audio ([sealed] by the caller of this function with the call key). [ttl] should
+     * be the peer's hop distance, so the audio doesn't flood further than it needs to. False if there is
+     * no link to send on.
+     */
+    suspend fun sendCallAudio(to: PeerId, callId: MessageId, seq: Long, sealed: ByteArray, ttl: Int): Boolean = onNode {
+        val packet = PacketCodec.create(
+            identity.signing,
+            Payload.Call(callId, seq, sealed),
+            to,
+            ttl.coerceIn(1, Murmur.INITIAL_TTL),
+            newPacketId(),
+            clock.now(),
+        )
+        originate(packet) > 0
+    }
+
+    /** Hop distance to [peer] as far as the mesh knows (1 = direct link), or null if unknown. */
+    suspend fun hopsTo(peer: PeerId): Int? = onNode {
+        val rec = peerRecords[peer] ?: return@onNode null
+        when {
+            links.values.any { it.peerId == peer } -> 1
+            rec.hops > 0 -> rec.hops
+            else -> null
+        }
     }
 
     // ---------------------------------------------------------------- link events
@@ -319,7 +347,18 @@ class MeshNode(
         if (packet.senderId == myId) return
         _stats.update { it.copy(received = it.received + 1) }
         relay(packet, linkId)
-        deliver(packet, state, linkId, now)
+        val payload = packet.payload
+        if (payload is Payload.Call) deliverCall(packet, payload, now) else deliver(packet, state, linkId, now)
+    }
+
+    /** Call audio: ~12 packets a second, so it skips the peer bookkeeping that other packets trigger. */
+    private fun deliverCall(packet: Packet, payload: Payload.Call, now: Long) {
+        if (packet.recipientId != myId) return
+        val sender = packet.senderId
+        peerRecords[sender]?.lastHeard = now
+        tracer.onDelivered(packet)
+        if (sender in blocked) return
+        emit(MeshEvent.CallAudio(sender, payload.callId, payload.seq, payload.sealed))
     }
 
     private fun relay(packet: Packet, fromLinkId: String) {
@@ -330,7 +369,8 @@ class MeshNode(
             if (id != fromLinkId && state.link.send(bytes)) count++
         }
         if (count > 0) {
-            _stats.update { it.copy(relayed = it.relayed + 1) }
+            // Call audio isn't counted as "messages relayed".
+            if (packet.type != PacketType.CALL) _stats.update { it.copy(relayed = it.relayed + 1) }
             tracer.onRelayed(packet, count)
         }
     }
@@ -339,7 +379,8 @@ class MeshNode(
         val sender = packet.senderId
         val rec = peerRecords.getOrPut(sender) { PeerRecord(sender) }
         rec.lastHeard = now
-        rec.hops = packet.hops
+        // Only announces reliably start at ttl 7; other packets may use a shorter reach.
+        if (packet.payload is Payload.Announce || rec.hops == 0) rec.hops = packet.hops
         rec.departed = false
         rec.signingKey = packet.senderKey
 
@@ -362,7 +403,7 @@ class MeshNode(
                 rec.nickname = payload.nickname
                 tracer.onDelivered(packet)
                 if (sender !in blocked) {
-                    emit(MeshEvent.PublicMessage(packet.packetId, sender, payload.nickname, payload.text, packet.timestamp, packet.hops))
+                    emit(MeshEvent.PublicMessage(packet.packetId, sender, payload.nickname, payload.text, packet.timestamp, hopsOf(rec, packet)))
                 }
             }
             is Payload.Private -> if (packet.recipientId == myId) handlePrivate(packet, rec, linkId)
@@ -372,6 +413,7 @@ class MeshNode(
             }
             is Payload.Room -> deliverRoom(packet, payload, rec)
             is Payload.Unknown -> Unit // relayed above; nothing to show
+            is Payload.Call -> Unit // handled by deliverCall
         }
         publishPeers()
         if (!rec.departed) flushPending(sender)
@@ -401,7 +443,7 @@ class MeshNode(
                 target = content.target,
                 body = content.body,
                 timestamp = packet.timestamp,
-                hops = packet.hops,
+                hops = hopsOf(rec, packet),
             ),
         )
     }
@@ -421,13 +463,15 @@ class MeshNode(
                 sendControl(sender, DmKind.DELIVERED, content.messageId)
                 val firstTime = seenMessages.add(sender to content.messageId)
                 if (firstTime && sender !in blocked) {
-                    emit(MeshEvent.DirectMessage(content.messageId, sender, content.body, packet.timestamp, packet.hops))
+                    emit(MeshEvent.DirectMessage(content.messageId, sender, content.body, packet.timestamp, hopsOf(rec, packet)))
                 }
             }
             DmKind.DELIVERED -> onReceipt(sender, content.messageId, DeliveryStatus.DELIVERED)
             DmKind.READ -> onReceipt(sender, content.messageId, DeliveryStatus.READ)
             DmKind.TYPING -> if (sender !in blocked) emit(MeshEvent.Typing(sender))
-            DmKind.REACTION, DmKind.RETRACT, DmKind.WAVE, DmKind.TIMER -> if (sender !in blocked) {
+            DmKind.REACTION, DmKind.RETRACT, DmKind.WAVE, DmKind.TIMER,
+            DmKind.CALL_OFFER, DmKind.CALL_ANSWER, DmKind.CALL_END,
+            -> if (sender !in blocked) {
                 emit(MeshEvent.DirectControl(sender, content.kind, content.messageId, content.body, packet.timestamp))
             }
         }
@@ -566,6 +610,16 @@ class MeshNode(
     }
 
     // ---------------------------------------------------------------- helpers
+
+    /**
+     * Hops to show for a message. `8 - ttl` is only an upper bound (a "short reach" packet starts below
+     * ttl 7), so prefer what a direct link or the sender's last announce says.
+     */
+    private fun hopsOf(rec: PeerRecord, packet: Packet): Int = when {
+        links.values.any { it.peerId == rec.id } -> 1
+        rec.hops > 0 -> minOf(rec.hops, packet.hops)
+        else -> packet.hops
+    }
 
     private fun isReachable(rec: PeerRecord, now: Long): Boolean = statusOf(rec, now) != PeerStatus.OFFLINE
 

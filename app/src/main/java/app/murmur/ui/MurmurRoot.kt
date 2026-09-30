@@ -18,7 +18,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -32,6 +34,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import app.murmur.AppContainer
+import app.murmur.ui.call.CallOverlay
 import app.murmur.ui.chat.ChatRoute
 import app.murmur.ui.components.LocalNavAnimatedScope
 import app.murmur.ui.components.LocalSharedTransitionScope
@@ -87,7 +90,8 @@ fun MurmurRoot(container: AppContainer, pendingConversation: MutableStateFlow<St
 
             // App lock covers everything (the screens underneath stay put, so unlocking returns to them).
             val lockShowing by container.appLock.showing.collectAsStateWithLifecycle(initialValue = settings.appLock.enabled)
-            SharedTransitionLayout(if (lockShowing) Modifier.clearAndSetSemantics {} else Modifier) {
+            var callCovering by remember { mutableStateOf(false) }
+            SharedTransitionLayout(if (lockShowing || callCovering) Modifier.clearAndSetSemantics {} else Modifier) {
                 CompositionLocalProvider(LocalSharedTransitionScope provides this) {
                     NavHost(
                         navController = nav,
@@ -136,6 +140,9 @@ fun MurmurRoot(container: AppContainer, pendingConversation: MutableStateFlow<St
             ) {
                 LockScreen()
             }
+
+            // Calls sit above everything, the lock screen included (like a phone call).
+            if (settings.onboardingDone) CallOverlay(onCoveringChange = { callCovering = it })
 
             // Onboarding finished → Radar. Panic wipe → back to onboarding.
             LaunchedEffect(settings.onboardingDone) {

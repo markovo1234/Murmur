@@ -1,6 +1,9 @@
 package app.murmur.ui.chat
 
+import android.Manifest
 import android.content.ClipData
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import android.content.res.Configuration
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -35,6 +38,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
@@ -139,6 +143,7 @@ class ChatActions(
     val onLeaveChannel: () -> Unit = {},
     val onSearch: (String?) -> Unit = {},
     val onSos: (String) -> Unit = {},
+    val onCall: () -> Unit = {},
 )
 
 @Composable
@@ -150,6 +155,7 @@ fun ChatRoute(conversationId: String, onBack: () -> Unit, onOpenChat: (String) -
     var search by rememberSaveable(conversationId) { mutableStateOf<String?>(null) }
     var sheetPeer by rememberSaveable { mutableStateOf<String?>(null) }
     val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
 
     // Behind the lock screen the chat isn't really visible: keep notifying and don't mark anything read.
@@ -165,6 +171,10 @@ fun ChatRoute(conversationId: String, onBack: () -> Unit, onOpenChat: (String) -
     LaunchedEffect(vm) { vm.events.collect { snackbar.showSnackbar(it) } }
     LaunchedEffect(vm) { vm.waves.collect { haptics.performHapticFeedback(HapticFeedbackType.LongPress) } }
     LaunchedEffect(search) { vm.setSearch(search) }
+    val calls = LocalContext.current.container.calls
+    val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) vm.call() else scope.launch { snackbar.showSnackbar("Murmur needs the microphone for calls.") }
+    }
 
     val replyingTo = replyingToId?.let { id -> state.items.firstNotNullOfOrNull { (it as? ChatItem.Bubble)?.message?.takeIf { m -> m.id == id } } }
 
@@ -201,6 +211,7 @@ fun ChatRoute(conversationId: String, onBack: () -> Unit, onOpenChat: (String) -
             onLeaveChannel = { vm.leaveChannel(onBack) },
             onSearch = { search = it },
             onSos = vm::sendSos,
+            onCall = { if (calls.hasMicPermission()) vm.call() else micLauncher.launch(Manifest.permission.RECORD_AUDIO) },
         ),
     )
 
@@ -442,6 +453,9 @@ private fun ChatTopBar(
             }
         },
         actions = {
+            if (state.kind == ChatKind.DIRECT) {
+                IconButton(onClick = actions.onCall, enabled = !state.blocked) { Icon(Icons.Filled.Call, contentDescription = "Voice call") }
+            }
             IconButton(onClick = { actions.onSearch("") }) { Icon(Icons.Filled.Search, contentDescription = "Search in chat") }
             Box {
                 IconButton(onClick = { onMenu(true) }) { Icon(Icons.Filled.MoreVert, contentDescription = "More options") }

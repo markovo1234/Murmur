@@ -46,6 +46,19 @@ class MeshController(private val context: Context, private val log: DiagnosticsL
         context.stopService(Intent(context, MeshService::class.java))
     }
 
+    /** While a call is active the service also declares the microphone (so the call survives leaving the app). */
+    fun setCallActive(active: Boolean) {
+        val runtime = _runtime.value ?: return // no mesh, no service to update
+        runtime.transport.setCallMode(active)
+        try {
+            context.startService(
+                Intent(context, MeshService::class.java).setAction(if (active) MeshService.ACTION_CALL_STARTED else MeshService.ACTION_CALL_ENDED),
+            )
+        } catch (e: Exception) {
+            log.log("SERVICE", "call mode switch failed: ${e.javaClass.simpleName}")
+        }
+    }
+
     fun setForeground(foreground: Boolean) {
         _runtime.value?.setForeground(foreground)
     }

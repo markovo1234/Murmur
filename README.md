@@ -1,6 +1,6 @@
 # Murmur
 
-Chat with people nearby. No internet. No accounts. No servers.
+Chat and call people nearby. No internet. No accounts. No servers.
 
 Murmur is an Android app where phones talk to each other over **Bluetooth Low Energy** and relay
 messages for each other in a mesh, so a message can reach someone who is out of your own range as long
@@ -25,6 +25,19 @@ as other Murmur phones sit in between. The app **has no internet permission**.
   can try the whole app on one phone.
 - Light and dark themes (dark-first), optional dynamic color, TalkBack labels everywhere, and respect
   for the system "Remove animations" setting.
+
+### New in 1.2: voice calls
+
+- Tap the 📞 button in a direct chat to **call** someone. Calls are end-to-end encrypted and go over
+  Bluetooth only: no internet, no phone number. The other phone rings (with its ringtone, following
+  silent/vibrate mode) and can answer from the app or the notification.
+- Mute, speaker, a call timer and a quality indicator; the call screen can shrink to a pill so you
+  can keep chatting. Calls keep going with the screen off. Missed calls and call durations appear in
+  the chat.
+- Voice is compressed with AMR-NB at 7.95 kbit/s (phone-call quality). Calls work best **directly
+  between two phones in Bluetooth range**; through one or two relaying phones they work but can
+  break up. Expect about half a second of delay.
+- Both phones need Murmur 1.2. Murmur asks for the microphone the first time you call or answer.
 
 ### New in 1.1
 
@@ -139,6 +152,15 @@ keep Bluetooth on. Open **Settings → Diagnostics** on any phone to see links, 
      5 minutes** (B sees the change; new messages vanish on both phones 5 min after arriving).
    - #nearby menu → **Send SOS alert** → hold: B shows a red banner and a loud notification.
    - Settings → **App lock** → set a PIN, leave the app and come back: the PIN pad appears.
+8. **Voice calls (two phones with 1.2, side by side)**
+   - Open A's chat with B → 📞. Allow the microphone. A shows "Calling…" then "Ringing…"; B rings.
+   - Answer on B (in the app, or with **Answer** in the notification when B is on another app).
+     Both show a running timer and "Direct Bluetooth link". Talk: each hears the other within ~0.5 s.
+   - Try Mute and Speaker; minimize the call and send a message; turn A's screen off and keep talking.
+   - Hang up on either phone: both show "Call ended" and the chat gets "📞 Outgoing/Incoming call · m:ss".
+   - Call again and don't answer: after ~35 s A shows "No answer" and B gets a missed-call notification.
+   - Optional: repeat with a third phone relaying (A and C out of range): the route reads "Through the
+     mesh · 2 hops"; the Diagnostics log on B shows the relaying.
 
 Single phone? Turn on **Demo mode** (Settings → Diagnostics) to see the radar, chats, ticks, typing,
 replies, reactions, waves and a demo channel without other phones.
@@ -172,7 +194,10 @@ replies, reactions, waves and a demo channel without other phones.
 
 ## Limitations
 
-- Bluetooth LE range is roughly 10–30 m indoors; throughput is low (messages are short text only).
+- Bluetooth LE range is roughly 10–30 m indoors; throughput is low (text and voice calls only; no
+  video, photos or files).
+- Voice calls need ~27 kbit/s each way on every link they cross. On a busy mesh or across several
+  hops they break up. Calls can't wait for someone to come back in range.
 - Each phone makes at most 6 outgoing connections; very dense crowds aren't tuned.
 - Delivery depends on phones being in the mesh at the time: DMs wait on the sender for up to 24 h, but
   #nearby messages aren't stored and forwarded later. Read receipts aren't queued.
