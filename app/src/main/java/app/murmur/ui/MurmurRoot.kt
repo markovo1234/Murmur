@@ -1,6 +1,7 @@
 package app.murmur.ui
 
 import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -20,6 +21,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
@@ -36,7 +38,9 @@ import app.murmur.ui.components.LocalSharedTransitionScope
 import app.murmur.ui.components.Motion
 import app.murmur.ui.diagnostics.DiagnosticsRoute
 import app.murmur.ui.main.MainRoute
+import app.murmur.ui.lock.LockScreen
 import app.murmur.ui.onboarding.OnboardingRoute
+import app.murmur.ui.people.PeopleRoute
 import app.murmur.ui.settings.BlockedRoute
 import app.murmur.ui.settings.ProfileEditRoute
 import app.murmur.ui.theme.MurmurTheme
@@ -50,6 +54,7 @@ import kotlinx.serialization.Serializable
 @Serializable data object ProfileDest
 @Serializable data object BlockedDest
 @Serializable data object DiagnosticsDest
+@Serializable data object PeopleDest
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -80,7 +85,9 @@ fun MurmurRoot(container: AppContainer, pendingConversation: MutableStateFlow<St
                 slideOutHorizontally(spec()) { shift } + fadeOut(fadeSpec())
             }
 
-            SharedTransitionLayout {
+            // App lock covers everything (the screens underneath stay put, so unlocking returns to them).
+            val lockShowing by container.appLock.showing.collectAsStateWithLifecycle(initialValue = settings.appLock.enabled)
+            SharedTransitionLayout(if (lockShowing) Modifier.clearAndSetSemantics {} else Modifier) {
                 CompositionLocalProvider(LocalSharedTransitionScope provides this) {
                     NavHost(
                         navController = nav,
@@ -98,6 +105,7 @@ fun MurmurRoot(container: AppContainer, pendingConversation: MutableStateFlow<St
                                     onEditProfile = { nav.navigate(ProfileDest) },
                                     onBlocked = { nav.navigate(BlockedDest) },
                                     onDiagnostics = { nav.navigate(DiagnosticsDest) },
+                                    onPeople = { nav.navigate(PeopleDest) { launchSingleTop = true } },
                                 )
                             }
                         }
@@ -114,8 +122,19 @@ fun MurmurRoot(container: AppContainer, pendingConversation: MutableStateFlow<St
                         composable<ProfileDest> { ProfileEditRoute(onBack = { nav.popBackStack() }) }
                         composable<BlockedDest> { BlockedRoute(onBack = { nav.popBackStack() }) }
                         composable<DiagnosticsDest> { DiagnosticsRoute(onBack = { nav.popBackStack() }) }
+                        composable<PeopleDest> {
+                            PeopleRoute(onBack = { nav.popBackStack() }, onOpenChat = { nav.navigate(ChatDest(it)) { launchSingleTop = true } })
+                        }
                     }
                 }
+            }
+
+            AnimatedVisibility(
+                visible = lockShowing,
+                enter = EnterTransition.None,
+                exit = fadeOut(Motion.tweenOrSnap(reduce, 220)),
+            ) {
+                LockScreen()
             }
 
             // Onboarding finished → Radar. Panic wipe → back to onboarding.

@@ -26,6 +26,33 @@ as other Murmur phones sit in between. The app **has no internet permission**.
 - Light and dark themes (dark-first), optional dynamic color, TalkBack labels everywhere, and respect
   for the system "Remove animations" setting.
 
+### New in 1.1
+
+- **Channels**: join or create `#topic` rooms from the Chats tab. Anyone who types the same name
+  joins the same channel. Add a **password** and the messages are encrypted so only people who know
+  it can read them (relays still carry them).
+- **Replies**: swipe a message right (or long-press → Reply) to quote it; tap a quote to jump to the
+  original.
+- **Reactions**: long-press for 👍 ❤️ 😂 😮 😢 🙏, or double-tap for ❤️. Works in DMs, #nearby and channels.
+- **Delete for everyone** on your own messages, and **Delete for me** on any message.
+- **@mentions** with suggestions while typing; mentions of you are highlighted and always notify.
+- **Formatting**: `*bold*`, `_italic_`, `~strike~` and `` `code` ``.
+- **Disappearing messages** per DM (5 min, 1 h, 1 day, 1 week), set for both people.
+- **Wave 👋** to nudge someone.
+- **SOS alert** in #nearby (hold to send): everyone in range gets a loud, red alert.
+- **Search** inside any chat; **drafts** are kept per chat.
+- **Pin** and **mute** chats, **Mark all read**, message **info** (sent, delivered, read, route).
+- **Favorites** (★) with an alert when a favorite comes into range, and private **nicknames** for
+  people. A **People** screen lists everyone you've met.
+- **App lock** with a PIN (also hides the app from screenshots and the recent-apps preview), and an
+  option to **hide message text in notifications**.
+- **Battery saver** (slower scanning in the background) and **message reach** (7 or 3 hops).
+- A **relay counter** in Settings shows how many messages your phone has carried for others.
+
+1.1 phones and 1.0 phones talk to each other: text, DMs and replies work both ways. Reactions,
+deletions, waves, timers, SOS and channels need 1.1 on both ends; 1.0 phones just don't show them.
+Updating keeps your chats (the database migrates in place).
+
 ## Install the APK on your phone (from GitHub Actions)
 
 Every push builds the app on GitHub Actions and attaches the APKs to the run.
@@ -101,8 +128,20 @@ keep Bluetooth on. Open **Settings → Diagnostics** on any phone to see links, 
    - B returns to onboarding with no chats. After onboarding again, B appears to the others as a new
      person, and the safety numbers are different.
 
-Single phone? Turn on **Demo mode** (Settings → Diagnostics) to see the radar, chats, ticks, typing
-and replies without other phones.
+7. **1.1 features (two phones with 1.1)**
+   - Chats → **Join channel** → `#test` on both phones: a message on A appears on B. Join `#secret`
+     with the same password on both: it works; a third phone that joined `#secret` without the
+     password (or with a different one) sees nothing.
+   - Swipe one of B's messages right on A and reply: B sees the quote. Double-tap it: B sees ❤️.
+     Long-press your own message → **Delete for everyone**: it turns into "Message deleted" on both.
+   - In the DM menu: **Wave 👋** (B sees "A waved at you 👋", as a notification if the chat isn't
+     open) and **Disappearing messages →
+     5 minutes** (B sees the change; new messages vanish on both phones 5 min after arriving).
+   - #nearby menu → **Send SOS alert** → hold: B shows a red banner and a loud notification.
+   - Settings → **App lock** → set a PIN, leave the app and come back: the PIN pad appears.
+
+Single phone? Turn on **Demo mode** (Settings → Diagnostics) to see the radar, chats, ticks, typing,
+replies, reactions, waves and a demo channel without other phones.
 
 ## How it's built
 
@@ -122,7 +161,11 @@ and replies without other phones.
 - DMs are encrypted per message (ephemeral X25519 → HKDF-SHA256 → ChaCha20-Poly1305).
 - **What others can see**: #nearby messages are public. For DMs, relays can see who is talking to whom,
   when, and roughly how long the messages are, but not their content. Nicknames and avatars are
-  broadcast in the clear.
+  broadcast in the clear. Channel names are visible to relays; open-channel messages are public;
+  password-channel messages are encrypted with a key derived from the name and password (PBKDF2,
+  120,000 rounds), so a weak password can be guessed offline by someone who recorded the traffic.
+- The app-lock PIN is stored only as a salted PBKDF2 hash; 5 wrong tries lock input for 30 s. It
+  protects the screen, not the database files.
 - There is no forward secrecy against theft of the recipient's key: someone who records traffic and
   later steals a phone's keys could decrypt DMs sent to it. Panic wipe replaces your keys.
 - This code has not been audited.

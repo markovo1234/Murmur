@@ -6,6 +6,11 @@ reject malformed UTF-8 so every accepted string re-encodes to the identical byte
 
 The reference implementation is `core/src/main/kotlin/app/murmur/core/protocol/`.
 
+**App 1.1 additions** (still packet `version` 1, fully interoperable with 1.0 phones): the ROOM
+packet type (`0x05`) for #nearby extras and channels, four new DM kinds, relaying of unknown packet
+types, and tolerance for trailing bytes in payloads so later versions can append fields. Sections
+marked *(1.1)* describe them; see [Compatibility](#compatibility) for how 1.0 phones behave.
+
 ## Identity
 
 | Item | Definition |
@@ -41,10 +46,15 @@ signature itself. Relays decrement `ttl` without re-signing.
 
 **Acceptance** — a receiver drops a packet unless:
 
-1. it decodes strictly (known version and type, exact length, valid payload, no trailing bytes),
+1. it decodes strictly (known version, exact length, valid payload),
 2. `senderId == first8(SHA-256(included key))`,
 3. the signature verifies,
 4. `now - 12 h ≤ timestamp ≤ now + 1 h`.
+
+*(1.1)* A packet with an **unknown `type`** is still checked (2–4) and, if valid, relayed like any
+other, but never delivered. ANNOUNCE, PUBLIC, LEAVE, ROOM content and DM plaintexts **ignore trailing
+bytes** after their known fields (1.0 rejected them), so a later version can append fields without
+breaking 1.1 phones. PRIVATE payloads are length-exact.
 
 ## Payloads
 
@@ -87,16 +97,59 @@ Inner plaintext:
 
 | Size | Field |
 |---:|---|
-| 1 | kind: `1` TEXT, `2` DELIVERED, `3` READ, `4` TYPING |
+| 1 | kind: `1` TEXT, `2` DELIVERED, `3` READ, `4` TYPING; *(1.1)* `5` REACTION, `6` RETRACT, `7` WAVE, `8` TIMER |
 | 16 | `messageId` (TEXT: stable across resends; receipts: the acknowledged message) |
 | 32 | sender's X25519 public key (so the recipient can always reply) |
-| 2 + n | body: u16 length + UTF-8 (TEXT: 1–1000 bytes; others: empty) |
+| 2 + n | body: u16 length + UTF-8 (TEXT: 1–1000 bytes; others: see below) |
 
 Relays forward PRIVATE packets they cannot read.
+
+*(1.1)* Control kinds. They are sent once (no DELIVERED, no resend) and never answered with receipts:
+
+| kind | `messageId` | body |
+|---|---|---|
+| REACTION | the reacted-to message | one emoji (≤ 32 bytes), or empty to remove my reaction |
+| RETRACT | one of **my own** messages | empty — "delete for everyone" |
+| WAVE | random | empty — a 👋 nudge |
+| TIMER | random | disappearing-message time for this chat in seconds, decimal ("0" = off, max 2,419,200) |
+
+**Replies** are ordinary TEXT whose first line is `> Author: snippet` (snippet ≤ 80 characters)
+followed by a newline and the reply, so 1.0 phones show them as a readable quote.
+**Mentions** are `@nickname` in the text, matched case-insensitively.
 
 ### `0x04` LEAVE
 
 Empty payload. Flooded on graceful shutdown; receivers mark the sender offline.
+
+### `0x05` ROOM *(1.1)*
+
+Broadcast. #nearby extras and named channels.
+
+| Size | Field |
+|---:|---|
+| 1 | flags: bit 0 = encrypted |
+| 1 + n | channel: u8 length + ASCII; empty = #nearby, else 1–24 of `a–z 0–9 - _` (not `nearby`) |
+| rest | room content, or (encrypted) 12-byte nonce ‖ ChaCha20-Poly1305 ciphertext ‖ tag of it |
+
+Room content:
+
+| Size | Field |
+|---:|---|
+| 1 | kind: `1` TEXT, `2` REACTION, `3` RETRACT, `4` SOS |
+| 1 + n | sender nickname (as ANNOUNCE) |
+| 16 | target `packetId` (REACTION / RETRACT; zeros otherwise) |
+| 2 + n | body: u16 length + UTF-8 (TEXT 1–1000 bytes; REACTION: emoji or empty to remove; RETRACT: empty; SOS: optional text) |
+
+* A **password channel** encrypts with
+  `key = PBKDF2-HMAC-SHA256(password, salt = "murmur-channel-v1:" ‖ channel, 120,000 iterations, 32 bytes)`
+  and `AAD = packetId ‖ senderId ‖ timestamp ‖ channel`. An open channel and a password channel may
+  share a name; they never mix.
+* Receivers deliver ROOM packets only for #nearby and channels they joined (and can decrypt); every
+  valid ROOM packet is relayed regardless.
+* RETRACT is honoured only when the target was sent by the same `senderId`. SOS is only valid in
+  #nearby. Senders may use `ttl` 3 instead of 7 ("short reach").
+* #nearby plain text still uses PUBLIC (`0x02`) so 1.0 phones see it; only REACTION, RETRACT and SOS
+  in #nearby use ROOM.
 
 ## Mesh rules
 
@@ -118,6 +171,16 @@ Empty payload. Flooded on graceful shutdown; receivers mark the sender offline.
   same `messageId`), up to 3 times, then Failed.
 * Recipient offline → Pending on the sender only; sent when the recipient is heard again; Failed after 24 h.
 * TYPING: at most one per 3 s while typing; shown for 5 s; never stored.
+
+## Compatibility
+
+| Sent by 1.1 | What a 1.0 phone does |
+|---|---|
+| #nearby text, DMs, receipts, typing | works as before |
+| a reply | shows it as text with the `> Author: …` quote line |
+| DM REACTION / RETRACT / WAVE / TIMER | ignores it (not shown; no receipt) |
+| ROOM (reactions, SOS, channels) | drops it and doesn't relay it — the mesh still carries it through 1.1 phones |
+| trailing bytes / unknown types from a future version | 1.0 drops them; 1.1 accepts or relays them |
 
 ## Safety number
 

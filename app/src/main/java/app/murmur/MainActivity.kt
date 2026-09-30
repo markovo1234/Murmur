@@ -5,13 +5,20 @@ import android.animation.ObjectAnimator
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
+import android.view.WindowManager
 import android.view.animation.AnticipateInterpolator
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import app.murmur.ui.MurmurRoot
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     /** Conversation to open (from a notification tap), consumed by the UI. */
@@ -46,6 +53,18 @@ class MainActivity : ComponentActivity() {
         }
         enableEdgeToEdge()
         handleIntent(intent)
+        // With app lock on, hide the app from screenshots and the recent-apps preview.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.CREATED) {
+                container.settingsState.map { it?.appLock?.enabled == true }.distinctUntilChanged().collect { secure ->
+                    if (secure) {
+                        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                    } else {
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                    }
+                }
+            }
+        }
         setContent {
             MurmurRoot(container = container, pendingConversation = pendingConversation)
         }

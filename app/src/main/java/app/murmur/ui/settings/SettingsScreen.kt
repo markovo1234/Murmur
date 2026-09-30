@@ -13,6 +13,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import app.murmur.data.AppLock
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -30,6 +40,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -74,6 +85,13 @@ data class SettingsUiState(
     val readReceipts: Boolean = true,
     val nearbyNotifications: Boolean = false,
     val blockedCount: Int = 0,
+    val lockEnabled: Boolean = false,
+    val lockTimeoutMillis: Long = 0,
+    val hideNotificationContent: Boolean = false,
+    val batterySaver: Boolean = false,
+    val publicReach: Int = Settings.REACH_NORMAL,
+    val favoriteAlerts: Boolean = true,
+    val relayedTotal: Long = 0,
     val version: String = BuildConfig.VERSION_NAME,
     val protocolVersion: Int = Murmur.PROTOCOL_VERSION,
 )
@@ -91,6 +109,13 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
             readReceipts = settings.readReceipts,
             nearbyNotifications = settings.nearbyNotifications,
             blockedCount = peers.count { it.blocked },
+            lockEnabled = settings.appLock.enabled,
+            lockTimeoutMillis = settings.appLock.timeoutMillis,
+            hideNotificationContent = settings.hideNotificationContent,
+            batterySaver = settings.batterySaver,
+            publicReach = settings.publicReach,
+            favoriteAlerts = settings.favoriteAlerts,
+            relayedTotal = settings.relayedTotal,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
@@ -100,6 +125,14 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     fun setKeepRunning(on: Boolean) = launch { c.settings.setKeepRunning(on) }
     fun setReadReceipts(on: Boolean) = launch { c.settings.setReadReceipts(on) }
     fun setNearbyNotifications(on: Boolean) = launch { c.settings.setNearbyNotifications(on) }
+    fun setHideContent(on: Boolean) = launch { c.settings.setHideNotificationContent(on) }
+    fun setBatterySaver(on: Boolean) = launch { c.settings.setBatterySaver(on) }
+    fun setReach(ttl: Int) = launch { c.settings.setPublicReach(ttl) }
+    fun setFavoriteAlerts(on: Boolean) = launch { c.settings.setFavoriteAlerts(on) }
+    fun setLockTimeout(millis: Long) = launch { c.settings.setLockTimeout(millis) }
+    fun setPin(pin: String) = launch { c.appLock.setPin(pin) }
+    fun disableLock() = launch { c.appLock.disable() }
+    suspend fun verifyPin(pin: String): Boolean = c.appLock.verify(pin)
 
     /**
      * Erases messages, settings and identity keys; the root then shows onboarding. Runs in the app scope
@@ -114,6 +147,28 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     }
 }
 
+/** Everything the settings screen can change. */
+class SettingsActions(
+    val onEditProfile: () -> Unit = {},
+    val onThemeChange: (ThemeMode) -> Unit = {},
+    val onDynamicColorChange: (Boolean) -> Unit = {},
+    val onRelayChange: (Boolean) -> Unit = {},
+    val onKeepRunningChange: (Boolean) -> Unit = {},
+    val onReadReceiptsChange: (Boolean) -> Unit = {},
+    val onNearbyNotificationsChange: (Boolean) -> Unit = {},
+    val onHideContentChange: (Boolean) -> Unit = {},
+    val onBatterySaverChange: (Boolean) -> Unit = {},
+    val onReachChange: (Int) -> Unit = {},
+    val onFavoriteAlertsChange: (Boolean) -> Unit = {},
+    val onLockTimeoutChange: (Long) -> Unit = {},
+    val onSetPin: (String) -> Unit = {},
+    val onDisableLock: () -> Unit = {},
+    val onVerifyPin: suspend (String) -> Boolean = { true },
+    val onBlocked: () -> Unit = {},
+    val onDiagnostics: () -> Unit = {},
+    val onPanicWipe: () -> Unit = {},
+)
+
 @Composable
 fun SettingsRoute(contentPadding: PaddingValues, onEditProfile: () -> Unit, onBlocked: () -> Unit, onDiagnostics: () -> Unit) {
     val vm = containerViewModel { SettingsViewModel(it) }
@@ -121,35 +176,33 @@ fun SettingsRoute(contentPadding: PaddingValues, onEditProfile: () -> Unit, onBl
     SettingsScreen(
         state = state,
         contentPadding = contentPadding,
-        onEditProfile = onEditProfile,
-        onThemeChange = vm::setTheme,
-        onDynamicColorChange = vm::setDynamicColor,
-        onRelayChange = vm::setRelay,
-        onKeepRunningChange = vm::setKeepRunning,
-        onReadReceiptsChange = vm::setReadReceipts,
-        onNearbyNotificationsChange = vm::setNearbyNotifications,
-        onBlocked = onBlocked,
-        onDiagnostics = onDiagnostics,
-        onPanicWipe = vm::panicWipe,
+        actions = SettingsActions(
+            onEditProfile = onEditProfile,
+            onThemeChange = vm::setTheme,
+            onDynamicColorChange = vm::setDynamicColor,
+            onRelayChange = vm::setRelay,
+            onKeepRunningChange = vm::setKeepRunning,
+            onReadReceiptsChange = vm::setReadReceipts,
+            onNearbyNotificationsChange = vm::setNearbyNotifications,
+            onHideContentChange = vm::setHideContent,
+            onBatterySaverChange = vm::setBatterySaver,
+            onReachChange = vm::setReach,
+            onFavoriteAlertsChange = vm::setFavoriteAlerts,
+            onLockTimeoutChange = vm::setLockTimeout,
+            onSetPin = vm::setPin,
+            onDisableLock = vm::disableLock,
+            onVerifyPin = vm::verifyPin,
+            onBlocked = onBlocked,
+            onDiagnostics = onDiagnostics,
+            onPanicWipe = vm::panicWipe,
+        ),
     )
 }
 
 @Composable
-fun SettingsScreen(
-    state: SettingsUiState,
-    contentPadding: PaddingValues,
-    onEditProfile: () -> Unit,
-    onThemeChange: (ThemeMode) -> Unit,
-    onDynamicColorChange: (Boolean) -> Unit,
-    onRelayChange: (Boolean) -> Unit,
-    onKeepRunningChange: (Boolean) -> Unit,
-    onReadReceiptsChange: (Boolean) -> Unit,
-    onNearbyNotificationsChange: (Boolean) -> Unit,
-    onBlocked: () -> Unit,
-    onDiagnostics: () -> Unit,
-    onPanicWipe: () -> Unit,
-) {
+fun SettingsScreen(state: SettingsUiState, contentPadding: PaddingValues, actions: SettingsActions) {
     var confirmWipe by remember { mutableStateOf(false) }
+    var pinFlow by remember { mutableStateOf<PinFlow?>(null) }
     LazyColumn(
         contentPadding = PaddingValues(
             start = Dimens.ScreenPadding,
@@ -164,7 +217,7 @@ fun SettingsScreen(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .clickable(onClickLabel = "Edit profile", onClick = onEditProfile)
+                        .clickable(onClickLabel = "Edit profile", onClick = actions.onEditProfile)
                         .padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -188,7 +241,7 @@ fun SettingsScreen(
                         options.forEachIndexed { i, (mode, label) ->
                             SegmentedButton(
                                 selected = state.themeMode == mode,
-                                onClick = { onThemeChange(mode) },
+                                onClick = { actions.onThemeChange(mode) },
                                 shape = SegmentedButtonDefaults.itemShape(i, options.size),
                             ) { Text(label) }
                         }
@@ -199,21 +252,84 @@ fun SettingsScreen(
                     subtitle = if (state.dynamicColorAvailable) "Use colors from your wallpaper" else "Needs Android 12 or newer",
                     checked = state.dynamicColor && state.dynamicColorAvailable,
                     enabled = state.dynamicColorAvailable,
-                    onChange = onDynamicColorChange,
+                    onChange = actions.onDynamicColorChange,
                 )
             }
         }
+        item(key = "relay-card") { RelayCard(state.relayedTotal, state.relay) }
         item(key = "mesh") {
             Group("Mesh") {
-                SwitchRow("Relay for others", "Pass on messages so the mesh reaches further", state.relay, onChange = onRelayChange)
-                SwitchRow("Keep running in background", "Stay reachable when Murmur isn't open", state.keepRunning, onChange = onKeepRunningChange)
-                SwitchRow("Read receipts", "Let people see when you've read their messages", state.readReceipts, onChange = onReadReceiptsChange)
-                SwitchRow("#nearby notifications", "Notify for public messages (DMs always notify)", state.nearbyNotifications, onChange = onNearbyNotificationsChange)
+                SwitchRow("Relay for others", "Pass on messages so the mesh reaches further", state.relay, onChange = actions.onRelayChange)
+                SwitchRow("Keep running in background", "Stay reachable when Murmur isn't open", state.keepRunning, onChange = actions.onKeepRunningChange)
+                SwitchRow(
+                    "Battery saver",
+                    "Scan and advertise less often while Murmur is in the background. People take longer to appear.",
+                    state.batterySaver,
+                    onChange = actions.onBatterySaverChange,
+                )
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Message reach", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "How many hops your #nearby and channel messages travel. Short keeps them closer to you.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                        val options = listOf(Settings.REACH_NORMAL to "Normal · 7 hops", Settings.REACH_SHORT to "Short · 3 hops")
+                        options.forEachIndexed { i, (ttl, label) ->
+                            SegmentedButton(
+                                selected = state.publicReach == ttl,
+                                onClick = { actions.onReachChange(ttl) },
+                                shape = SegmentedButtonDefaults.itemShape(i, options.size),
+                            ) { Text(label, maxLines = 1) }
+                        }
+                    }
+                }
+            }
+        }
+        item(key = "notifications") {
+            Group("Notifications") {
+                SwitchRow("#nearby messages", "DMs, joined channels and @mentions always notify unless you mute them", state.nearbyNotifications, onChange = actions.onNearbyNotificationsChange)
+                SwitchRow("Favorites nearby", "Tell me when a favorite comes into range", state.favoriteAlerts, onChange = actions.onFavoriteAlertsChange)
+                SwitchRow(
+                    "Hide message text",
+                    if (state.lockEnabled) "Always hidden while app lock is on" else "Notifications show only who wrote, not what",
+                    checked = state.hideNotificationContent || state.lockEnabled,
+                    enabled = !state.lockEnabled,
+                    onChange = actions.onHideContentChange,
+                )
+            }
+        }
+        item(key = "security") {
+            Group("Security") {
+                SwitchRow(
+                    "App lock",
+                    "Ask for a PIN to open Murmur. Also hides it from the recent-apps preview and screenshots.",
+                    state.lockEnabled,
+                    onChange = { on -> pinFlow = if (on) PinFlow.Create else PinFlow.Disable },
+                )
+                if (state.lockEnabled) {
+                    NavRow(Icons.Filled.Lock, "Change PIN", "Enter your current PIN first") { pinFlow = PinFlow.Change }
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Lock after leaving the app", style = MaterialTheme.typography.bodyLarge)
+                        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                            val options = LOCK_TIMEOUTS
+                            options.forEachIndexed { i, (millis, label) ->
+                                SegmentedButton(
+                                    selected = state.lockTimeoutMillis == millis,
+                                    onClick = { actions.onLockTimeoutChange(millis) },
+                                    shape = SegmentedButtonDefaults.itemShape(i, options.size),
+                                ) { Text(label, maxLines = 1) }
+                            }
+                        }
+                    }
+                }
+                SwitchRow("Read receipts", "Let people see when you've read their messages", state.readReceipts, onChange = actions.onReadReceiptsChange)
             }
         }
         item(key = "privacy") {
             Group("Privacy") {
-                NavRow(MurmurIcons.Block, "Blocked people", if (state.blockedCount == 0) "Nobody" else "${state.blockedCount}", onBlocked)
+                NavRow(MurmurIcons.Block, "Blocked people", if (state.blockedCount == 0) "Nobody" else "${state.blockedCount}", actions.onBlocked)
                 Text(
                     "#nearby messages are deleted automatically after 24 hours.",
                     style = MaterialTheme.typography.bodySmall,
@@ -229,7 +345,7 @@ fun SettingsScreen(
                     )
                     HoldToConfirmButton(
                         label = "Hold to wipe everything",
-                        onConfirmed = onPanicWipe,
+                        onConfirmed = actions.onPanicWipe,
                         onAccessibilityClick = { confirmWipe = true },
                     )
                 }
@@ -237,7 +353,7 @@ fun SettingsScreen(
         }
         item(key = "diagnostics") {
             Group("Advanced") {
-                NavRow(Icons.Filled.Build, "Diagnostics", "Radio state, links, counters, log, Demo mode", onDiagnostics)
+                NavRow(Icons.Filled.Build, "Diagnostics", "Radio state, links, counters, log, Demo mode", actions.onDiagnostics)
             }
         }
         item(key = "about") {
@@ -258,6 +374,21 @@ fun SettingsScreen(
         }
     }
 
+    pinFlow?.let { flow ->
+        PinDialog(
+            flow = flow,
+            verify = actions.onVerifyPin,
+            onDone = { pin ->
+                when (flow) {
+                    PinFlow.Create, PinFlow.Change -> actions.onSetPin(pin)
+                    PinFlow.Disable -> actions.onDisableLock()
+                }
+                pinFlow = null
+            },
+            onDismiss = { pinFlow = null },
+        )
+    }
+
     if (confirmWipe) {
         AlertDialog(
             onDismissRequest = { confirmWipe = false },
@@ -266,7 +397,7 @@ fun SettingsScreen(
             confirmButton = {
                 TextButton(onClick = {
                     confirmWipe = false
-                    onPanicWipe()
+                    actions.onPanicWipe()
                 }) { Text("Wipe", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { confirmWipe = false }) { Text("Cancel") } },
@@ -325,16 +456,145 @@ private fun NavRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title:
     }
 }
 
-private val previewState = SettingsUiState(profile = Profile("Sam", "🐧", 1), peerId = "3f9a0c12e4b7d655", blockedCount = 1)
+private val LOCK_TIMEOUTS = listOf(0L to "Now", 60_000L to "1 min", 300_000L to "5 min", 1_800_000L to "30 min")
 
-@Preview(name = "Settings · light", showBackground = true, heightDp = 1400)
+/** Shows how much this phone has helped the mesh. */
 @Composable
-private fun SettingsLightPreview() = MurmurTheme(ThemeMode.LIGHT) {
-    Surface { SettingsScreen(previewState, PaddingValues(0.dp), {}, {}, {}, {}, {}, {}, {}, {}, {}, {}) }
+private fun RelayCard(relayed: Long, relayOn: Boolean) {
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(MurmurIcons.Hub, contentDescription = null, modifier = Modifier.size(32.dp))
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    when {
+                        relayed == 0L -> "No messages relayed yet"
+                        relayed == 1L -> "1 message relayed"
+                        else -> "${java.text.NumberFormat.getIntegerInstance().format(relayed)} messages relayed"
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    if (relayOn) "Your phone passes messages along so others can reach further. Thank you!" else "Relaying is off, so the mesh can't hop through your phone.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+    }
 }
 
-@Preview(name = "Settings · dark", showBackground = true, heightDp = 1400, uiMode = Configuration.UI_MODE_NIGHT_YES)
+/** What the PIN dialog is for. */
+enum class PinFlow { Create, Change, Disable }
+
+@Composable
+private fun PinDialog(flow: PinFlow, verify: suspend (String) -> Boolean, onDone: (String) -> Unit, onDismiss: () -> Unit) {
+    // Steps: optional "current PIN", then "new PIN" + "confirm".
+    var step by remember { mutableIntStateOf(if (flow == PinFlow.Create) 1 else 0) }
+    var pin by remember { mutableStateOf("") }
+    var first by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val title = when (step) {
+        0 -> "Enter your current PIN"
+        1 -> "Choose a PIN"
+        else -> "Enter it again"
+    }
+
+    fun submit() {
+        when (step) {
+            0 -> {
+                busy = true
+                scope.launch {
+                    val ok = verify(pin)
+                    busy = false
+                    when {
+                        !ok -> {
+                            error = "Wrong PIN"
+                            pin = ""
+                        }
+                        flow == PinFlow.Disable -> onDone(pin)
+                        else -> {
+                            step = 1
+                            pin = ""
+                            error = null
+                        }
+                    }
+                }
+            }
+            1 -> {
+                first = pin
+                pin = ""
+                step = 2
+                error = null
+            }
+            else -> if (pin == first) {
+                onDone(pin)
+            } else {
+                error = "PINs didn't match. Try again."
+                pin = ""
+                first = ""
+                step = 1
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (step == 1) {
+                    Text(
+                        "4 to 8 digits. If you forget it, the only way back in is to reinstall Murmur, which erases everything.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = { v -> if (v.length <= 8 && v.all { it in '0'..'9' }) pin = v },
+                    singleLine = true,
+                    isError = error != null,
+                    supportingText = error?.let { { Text(it) } },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { if (AppLock.isValidPin(pin) && !busy) submit() }),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = AppLock.isValidPin(pin) && !busy, onClick = ::submit) {
+                Text(if (step == 2 || flow == PinFlow.Disable) (if (flow == PinFlow.Disable) "Turn off" else "Save") else "Next")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+private val previewState = SettingsUiState(
+    profile = Profile("Sam", "🐧", 1),
+    peerId = "3f9a0c12e4b7d655",
+    blockedCount = 1,
+    lockEnabled = true,
+    lockTimeoutMillis = 60_000,
+    relayedTotal = 1_284,
+)
+
+@Preview(name = "Settings · light", showBackground = true, heightDp = 2000)
+@Composable
+private fun SettingsLightPreview() = MurmurTheme(ThemeMode.LIGHT) {
+    Surface { SettingsScreen(previewState, PaddingValues(0.dp), SettingsActions()) }
+}
+
+@Preview(name = "Settings · dark", showBackground = true, heightDp = 2000, uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable
 private fun SettingsDarkPreview() = MurmurTheme(ThemeMode.DARK) {
-    Surface { SettingsScreen(previewState.copy(themeMode = ThemeMode.DARK), PaddingValues(0.dp), {}, {}, {}, {}, {}, {}, {}, {}, {}, {}) }
+    Surface { SettingsScreen(previewState.copy(themeMode = ThemeMode.DARK, lockEnabled = false, relayedTotal = 0), PaddingValues(0.dp), SettingsActions()) }
 }

@@ -7,7 +7,6 @@
     <string name="service_title" tools:ignore="PluralsCandidate">Murmur is active · %1$d nearby</string>
     <string name="service_text">Relaying messages over Bluetooth</string>
     <string name="action_stop">Stop</string>
-    <string name="nearby_notification_title">%1$s in #nearby</string>
     <string name="channel_sos">Emergency alerts (SOS)</string>
     <string name="channel_people">Favorites nearby</string>
     <string name="hidden_message">New message</string>

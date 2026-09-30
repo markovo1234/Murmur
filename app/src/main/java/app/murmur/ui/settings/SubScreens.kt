@@ -182,7 +182,7 @@ fun BlockedScreen(blocked: List<Peer>, onUnblock: (PeerId) -> Unit, onBack: () -
                     EmojiAvatar(peer.emoji, peer.colorIndex, 40.dp)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(peer.nickname, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(peer.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                         Text("#${peer.id.shortTag}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     OutlinedButton(onClick = { onUnblock(peer.id) }) { Text("Unblock") }

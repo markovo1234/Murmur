@@ -29,6 +29,13 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.TextButton
+import app.murmur.data.SosAlert
+import app.murmur.data.db.NEARBY_CONVERSATION
+import app.murmur.ui.components.Format
+import app.murmur.ui.components.PreviewData
+import kotlinx.coroutines.flow.map
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -130,6 +137,12 @@ class MainViewModel(private val c: AppContainer) : ViewModel() {
     fun enableDemo() {
         viewModelScope.launch { c.settings.setDemoMode(true) }
     }
+
+    /** Other people's emergency alerts (newest first); they clear themselves after a while. */
+    val sos: StateFlow<List<SosAlert>> = c.chats.sosAlerts.map { list -> list.filter { !it.mine } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun dismissSos(id: String) = c.chats.dismissSos(id)
 }
 
 @Composable
@@ -138,9 +151,11 @@ fun MainRoute(
     onEditProfile: () -> Unit,
     onBlocked: () -> Unit,
     onDiagnostics: () -> Unit,
+    onPeople: () -> Unit,
 ) {
     val vm = containerViewModel { MainViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
+    val sos by vm.sos.collectAsStateWithLifecycle()
     val permissions = rememberPermissionActions()
     var tab by rememberSaveable { mutableStateOf(MainTab.RADAR) }
     var sheetPeer by rememberSaveable { mutableStateOf<String?>(null) }
@@ -155,6 +170,12 @@ fun MainRoute(
         state = state,
         tab = tab,
         onTabChange = { tab = it },
+        sos = sos,
+        onOpenSos = { alert ->
+            vm.dismissSos(alert.id)
+            onOpenChat(NEARBY_CONVERSATION)
+        },
+        onDismissSos = { vm.dismissSos(it.id) },
         onFix = {
             when (state.status) {
                 StatusKind.PERMISSIONS ->
@@ -168,7 +189,7 @@ fun MainRoute(
         },
     ) { current, padding ->
         when (current) {
-            MainTab.RADAR -> RadarRoute(padding, onPeerClick = { sheetPeer = it.toHex() }, onMessage = { onOpenChat(it.toHex()) })
+            MainTab.RADAR -> RadarRoute(padding, onPeerClick = { sheetPeer = it.toHex() }, onMessage = { onOpenChat(it.toHex()) }, onAllPeople = onPeople)
             MainTab.CHATS -> ChatsRoute(padding, onOpen = onOpenChat)
             MainTab.SETTINGS -> SettingsRoute(padding, onEditProfile, onBlocked, onDiagnostics)
         }
@@ -190,11 +211,19 @@ fun MainScreen(
     tab: MainTab,
     onTabChange: (MainTab) -> Unit,
     onFix: () -> Unit,
+    sos: List<SosAlert> = emptyList(),
+    onOpenSos: (SosAlert) -> Unit = {},
+    onDismissSos: (SosAlert) -> Unit = {},
     content: @Composable (MainTab, PaddingValues) -> Unit,
 ) {
     val reduce = MurmurTheme.reduceMotion
     Scaffold(
-        topBar = { StatusHeader(state, onFix) },
+        topBar = {
+            Column {
+                StatusHeader(state, onFix)
+                SosBanner(sos, onOpenSos, onDismissSos)
+            }
+        },
         bottomBar = {
             NavigationBar {
                 TabItem(MainTab.RADAR, tab, "Radar", MurmurIcons.Radar, 0, onTabChange)
@@ -339,6 +368,60 @@ private fun StatusHeader(state: MainUiState, onFix: () -> Unit) {
     }
 }
 
+/** Red banner for the newest SOS alert from someone in range. */
+@Composable
+private fun SosBanner(alerts: List<SosAlert>, onOpen: (SosAlert) -> Unit, onDismiss: (SosAlert) -> Unit) {
+    val latest = alerts.firstOrNull()
+    // Keep the last alert while the exit animation runs (plain holder: no state write during composition).
+    val last = remember { arrayOfNulls<SosAlert>(1) }
+    if (latest != null) last[0] = latest
+    AnimatedVisibility(
+        visible = latest != null,
+        enter = expandVertically(Motion.moveOrSnap(MurmurTheme.reduceMotion)) + fadeIn(),
+        exit = shrinkVertically() + fadeOut(),
+    ) {
+        val alert = latest ?: last[0] ?: return@AnimatedVisibility
+        Surface(
+            color = MaterialTheme.colorScheme.error,
+            contentColor = MaterialTheme.colorScheme.onError,
+            shape = MaterialTheme.shapes.large,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Dimens.ScreenPadding, vertical = 4.dp)
+                .semantics { liveRegion = LiveRegionMode.Assertive },
+        ) {
+            Column(Modifier.padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 4.dp)) {
+                Text(
+                    "🆘 ${alert.nickname} needs help",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                val where = if (alert.hops <= 1) "right next to you" else "${alert.hops} hops away"
+                Text(
+                    listOfNotNull(alert.text.takeIf { it.isNotBlank() }?.let { "“$it”" }, "$where · ${Format.clock(alert.time)}")
+                        .joinToString("\n"),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    if (alerts.size > 1) {
+                        Text(
+                            "+${alerts.size - 1} more",
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.align(Alignment.CenterVertically).weight(1f),
+                        )
+                    }
+                    TextButton(onClick = { onDismiss(alert) }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onError)) {
+                        Text("Dismiss")
+                    }
+                    TextButton(onClick = { onOpen(alert) }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onError)) {
+                        Text("Open #nearby", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun UnsupportedScreen(onTryDemo: () -> Unit) {
     Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
@@ -379,6 +462,13 @@ private fun MainLightPreview() = MurmurTheme(ThemeMode.LIGHT) {
 @Composable
 private fun MainDarkPreview() = MurmurTheme(ThemeMode.DARK) {
     MainScreen(MainUiState(StatusKind.BLUETOOTH_OFF), MainTab.CHATS, {}, {}) { _, p -> PreviewTabContent(p) }
+}
+
+@Preview(name = "Main · light · SOS", showBackground = true)
+@Composable
+private fun MainSosPreview() = MurmurTheme(ThemeMode.LIGHT) {
+    val alert = SosAlert("a", PreviewData.kai.id, "Kai", "Twisted ankle by the north gate", PreviewData.NOW, 2, mine = false)
+    MainScreen(MainUiState(StatusKind.NEARBY, nearby = 3), MainTab.RADAR, {}, {}, sos = listOf(alert)) { _, p -> PreviewTabContent(p) }
 }
 
 @Preview(name = "Unsupported · light", showBackground = true)

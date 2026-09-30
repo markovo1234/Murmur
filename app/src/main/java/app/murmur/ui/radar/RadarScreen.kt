@@ -10,15 +10,19 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -85,10 +89,10 @@ class RadarViewModel(c: AppContainer) : ViewModel() {
 }
 
 @Composable
-fun RadarRoute(contentPadding: PaddingValues, onPeerClick: (PeerId) -> Unit, onMessage: (PeerId) -> Unit) {
+fun RadarRoute(contentPadding: PaddingValues, onPeerClick: (PeerId) -> Unit, onMessage: (PeerId) -> Unit, onAllPeople: () -> Unit) {
     val vm = containerViewModel { RadarViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
-    RadarScreen(state, contentPadding, onPeerClick, onMessage)
+    RadarScreen(state, contentPadding, onPeerClick, onMessage, onAllPeople)
 }
 
 @Composable
@@ -97,6 +101,7 @@ fun RadarScreen(
     contentPadding: PaddingValues,
     onPeerClick: (PeerId) -> Unit,
     onMessage: (PeerId) -> Unit,
+    onAllPeople: () -> Unit = {},
 ) {
     LazyColumn(contentPadding = contentPadding, modifier = Modifier.fillMaxWidth()) {
         item(key = "radar") {
@@ -116,9 +121,21 @@ fun RadarScreen(
                 Modifier.fillMaxWidth().padding(horizontal = Dimens.ScreenPadding, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Nearby now", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Text("Nearby now", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 if (state.peers.isNotEmpty()) {
-                    Text("${state.peers.size}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        "  ${state.peers.size}",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                if (state.allPeers.any { !it.blocked }) {
+                    TextButton(onClick = onAllPeople) {
+                        Icon(MurmurIcons.People, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("All people")
+                    }
                 }
             }
         }
@@ -176,7 +193,20 @@ private fun NearbyRow(peer: Peer, name: String, now: Long, onClick: () -> Unit, 
         EmojiAvatar(peer.emoji, peer.colorIndex, 44.dp, online = peer.isOnline, verified = peer.verified)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (peer.favorite) {
+                    Spacer(Modifier.width(4.dp))
+                    Icon(Icons.Filled.Star, contentDescription = "favorite", tint = MurmurTheme.colors.hop, modifier = Modifier.size(16.dp))
+                }
+            }
             Text(
                 "${Format.peerStatus(peer)} · ${Format.lastSeen(now, peer.lastSeen)}",
                 style = MaterialTheme.typography.bodySmall,
@@ -189,7 +219,7 @@ private fun NearbyRow(peer: Peer, name: String, now: Long, onClick: () -> Unit, 
         if (peer.status == PeerStatus.NEARBY) SignalBars(peer.rssi) else HopBadge(peer.hops)
         Spacer(Modifier.width(8.dp))
         FilledTonalIconButton(onClick = onMessage) {
-            Icon(MurmurIcons.Chat, contentDescription = "Message ${peer.nickname}")
+            Icon(MurmurIcons.Chat, contentDescription = "Message ${peer.name}")
         }
     }
 }
@@ -197,7 +227,7 @@ private fun NearbyRow(peer: Peer, name: String, now: Long, onClick: () -> Unit, 
 private val previewState = RadarUiState(
     myEmoji = "🐧",
     myColor = 1,
-    peers = PreviewData.peers.filter { it.isOnline },
+    peers = PreviewData.peers.filter { it.isOnline }.map { if (it == PreviewData.luna) it.copy(favorite = true) else it },
     allPeers = PreviewData.peers,
     now = PreviewData.NOW,
 )

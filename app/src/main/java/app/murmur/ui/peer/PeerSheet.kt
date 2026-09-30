@@ -4,6 +4,20 @@ import android.content.res.Configuration
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -87,7 +101,29 @@ class PeerSheetViewModel(private val c: AppContainer, private val peerId: PeerId
         val peer = state.value.peer ?: return
         viewModelScope.launch { c.peers.setBlocked(peer.id, !peer.blocked) }
     }
+
+    fun toggleFavorite() {
+        val peer = state.value.peer ?: return
+        viewModelScope.launch { c.peers.setFavorite(peer.id, !peer.favorite) }
+    }
+
+    fun setAlias(alias: String?) {
+        viewModelScope.launch { c.peers.setAlias(peerId, alias) }
+    }
+
+    /** Returns false when throttled. */
+    suspend fun wave(): Boolean = c.chats.wave(peerId)
 }
+
+/** Everything the peer sheet can do. */
+class PeerSheetActions(
+    val onMessage: () -> Unit = {},
+    val onToggleVerified: () -> Unit = {},
+    val onToggleBlocked: () -> Unit = {},
+    val onToggleFavorite: () -> Unit = {},
+    val onSetAlias: (String?) -> Unit = {},
+    val onWave: suspend () -> Boolean = { true },
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -98,13 +134,32 @@ fun PeerSheet(peerId: PeerId, onDismiss: () -> Unit, onMessage: () -> Unit) {
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(topStart = Dimens.SheetRadius, topEnd = Dimens.SheetRadius),
     ) {
-        PeerSheetContent(state, onMessage, vm::toggleVerified, vm::toggleBlocked)
+        PeerSheetContent(
+            state,
+            PeerSheetActions(
+                onMessage = onMessage,
+                onToggleVerified = vm::toggleVerified,
+                onToggleBlocked = vm::toggleBlocked,
+                onToggleFavorite = vm::toggleFavorite,
+                onSetAlias = vm::setAlias,
+                onWave = vm::wave,
+            ),
+        )
     }
 }
 
 @Composable
-fun PeerSheetContent(state: PeerSheetUi, onMessage: () -> Unit, onToggleVerified: () -> Unit, onToggleBlocked: () -> Unit) {
+fun PeerSheetContent(state: PeerSheetUi, actions: PeerSheetActions) {
     val peer = state.peer
+    var renaming by remember { mutableStateOf(false) }
+    var waved by remember { mutableStateOf<Boolean?>(null) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(waved) {
+        if (waved != null) {
+            delay(2_500)
+            waved = null
+        }
+    }
     Column(
         Modifier
             .fillMaxWidth()
@@ -119,7 +174,32 @@ fun PeerSheetContent(state: PeerSheetUi, onMessage: () -> Unit, onToggleVerified
             return@Column
         }
         EmojiAvatar(peer.emoji, peer.colorIndex, 96.dp, online = peer.isOnline, verified = peer.verified)
-        Text(state.displayName, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = actions.onToggleFavorite) {
+                Icon(
+                    if (peer.favorite) Icons.Filled.Star else MurmurIcons.StarOutline,
+                    contentDescription = if (peer.favorite) "Remove from favorites" else "Add to favorites",
+                    tint = if (peer.favorite) MurmurTheme.colors.hop else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(
+                state.displayName,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            IconButton(onClick = { renaming = true }) {
+                Icon(Icons.Filled.Edit, contentDescription = "Set a nickname for ${peer.name}")
+            }
+        }
+        if (peer.alias != null) {
+            Text(
+                "Calls themselves “${peer.nickname}”",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             when (peer.status) {
                 PeerStatus.NEARBY -> SignalBars(peer.rssi)
@@ -128,6 +208,13 @@ fun PeerSheetContent(state: PeerSheetUi, onMessage: () -> Unit, onToggleVerified
             }
             val line = if (peer.status == PeerStatus.OFFLINE) "offline · last seen ${Format.lastSeen(state.now, peer.lastSeen)}" else Format.peerStatus(peer)
             Text(line, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (peer.firstSeen > 0) {
+            Text(
+                "First met ${Format.day(state.now, peer.firstSeen).lowercase().let { if (it == "today" || it == "yesterday") it else "on $it" }}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
 
         Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxWidth()) {
@@ -151,7 +238,7 @@ fun PeerSheetContent(state: PeerSheetUi, onMessage: () -> Unit, onToggleVerified
                         }
                     }
                     Text(
-                        "Compare this with the number on ${peer.nickname}'s phone. If they match, nobody is impersonating them.",
+                        "Compare this with the number on ${peer.name}'s phone. If they match, nobody is impersonating them.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -164,7 +251,7 @@ fun PeerSheetContent(state: PeerSheetUi, onMessage: () -> Unit, onToggleVerified
                         Text("Mark as verified", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
                         Switch(
                             checked = peer.verified,
-                            onCheckedChange = { onToggleVerified() },
+                            onCheckedChange = { actions.onToggleVerified() },
                             modifier = Modifier.semantics { contentDescription = "Mark as verified" },
                         )
                     }
@@ -174,24 +261,92 @@ fun PeerSheetContent(state: PeerSheetUi, onMessage: () -> Unit, onToggleVerified
             }
         }
 
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
-                onClick = onToggleBlocked,
+                onClick = actions.onToggleBlocked,
                 modifier = Modifier.weight(1f).heightIn(min = Dimens.MinTouch),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                contentPadding = PaddingValues(horizontal = 12.dp),
             ) {
                 Icon(MurmurIcons.Block, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(if (peer.blocked) "Unblock" else "Block")
+                Spacer(Modifier.width(6.dp))
+                Text(if (peer.blocked) "Unblock" else "Block", maxLines = 1)
             }
-            Button(onClick = onMessage, modifier = Modifier.weight(1f).heightIn(min = Dimens.MinTouch), enabled = !peer.blocked) {
+            OutlinedButton(
+                onClick = {
+                    scope.launch { waved = actions.onWave() }
+                },
+                enabled = !peer.blocked && peer.isOnline && waved == null,
+                modifier = Modifier.weight(1f).heightIn(min = Dimens.MinTouch),
+                contentPadding = PaddingValues(horizontal = 12.dp),
+            ) {
+                Text(
+                    when (waved) {
+                        true -> "Waved!"
+                        false -> "Wait a bit"
+                        null -> "👋 Wave"
+                    },
+                    maxLines = 1,
+                )
+            }
+            Button(
+                onClick = actions.onMessage,
+                modifier = Modifier.weight(1f).heightIn(min = Dimens.MinTouch),
+                enabled = !peer.blocked,
+                contentPadding = PaddingValues(horizontal = 12.dp),
+            ) {
                 Icon(MurmurIcons.Chat, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Message")
+                Spacer(Modifier.width(6.dp))
+                Text("Message", maxLines = 1)
             }
         }
     }
+
+    if (renaming && peer != null) {
+        AliasDialog(
+            current = peer.alias ?: "",
+            original = peer.nickname,
+            onSave = {
+                actions.onSetAlias(it)
+                renaming = false
+            },
+            onDismiss = { renaming = false },
+        )
+    }
 }
+
+@Composable
+private fun AliasDialog(current: String, original: String, onSave: (String?) -> Unit, onDismiss: () -> Unit) {
+    var text by remember { mutableStateOf(current) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Nickname for $original") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Only you see this name. It replaces “$original” everywhere in your app.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it.replace("\n", "").take(ALIAS_MAX) },
+                    singleLine = true,
+                    placeholder = { Text(original) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(text.trim().ifEmpty { null }) }) { Text("Save") } },
+        dismissButton = {
+            Row {
+                if (current.isNotEmpty()) TextButton(onClick = { onSave(null) }) { Text("Reset") }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
+    )
+}
+
+private const val ALIAS_MAX = 40
 
 private val previewState = PeerSheetUi(
     peer = PreviewData.luna,
@@ -203,11 +358,11 @@ private val previewState = PeerSheetUi(
 @Preview(name = "Peer sheet · light", showBackground = true)
 @Composable
 private fun PeerSheetLightPreview() = MurmurTheme(ThemeMode.LIGHT) {
-    Surface { PeerSheetContent(previewState, {}, {}, {}) }
+    Surface { PeerSheetContent(previewState.copy(peer = PreviewData.luna.copy(favorite = true, alias = "Luna ☀️")), PeerSheetActions()) }
 }
 
 @Preview(name = "Peer sheet · dark", showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable
 private fun PeerSheetDarkPreview() = MurmurTheme(ThemeMode.DARK) {
-    Surface { PeerSheetContent(previewState.copy(peer = PreviewData.theo, displayName = "Theo"), {}, {}, {}) }
+    Surface { PeerSheetContent(previewState.copy(peer = PreviewData.theo, displayName = "Theo"), PeerSheetActions()) }
 }

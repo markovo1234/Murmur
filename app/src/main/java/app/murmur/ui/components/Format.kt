@@ -53,10 +53,11 @@ object Format {
     }
 
     /** Short status for TalkBack on radar avatars and list rows. */
-    fun peerA11y(peer: Peer): String = "${peer.nickname}, ${peerStatus(peer)}"
+    fun peerA11y(peer: Peer): String = "${peer.name}${if (peer.favorite) ", favorite" else ""}, ${peerStatus(peer)}"
 
-    /** Appends "#1a2b" when another peer shares the nickname. */
+    /** Your own alias wins; otherwise appends "#1a2b" when another peer shares the nickname. */
     fun displayName(peer: Peer, all: List<Peer>): String {
+        if (peer.alias != null) return peer.alias
         val clash = all.any { it.id != peer.id && it.nickname.equals(peer.nickname, ignoreCase = true) }
         return if (clash) "${peer.nickname} #${peer.id.shortTag}" else peer.nickname
     }

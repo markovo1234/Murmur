@@ -5,9 +5,12 @@ import app.murmur.core.SecureRandomSource
 import app.murmur.core.crypto.PinHasher
 import app.murmur.core.protocol.Bytes
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.withContext
 
 /**
@@ -21,6 +24,11 @@ class AppLock(
 ) {
     private val _locked = MutableStateFlow(true)
     val locked: StateFlow<Boolean> = _locked.asStateFlow()
+
+    /** True while the lock screen should cover the app. */
+    val showing: Flow<Boolean> = combine(_locked, settings) { locked, s ->
+        locked && s != null && s.onboardingDone && s.appLock.enabled
+    }.distinctUntilChanged()
 
     private val _lockedOutUntil = MutableStateFlow(0L)
 
