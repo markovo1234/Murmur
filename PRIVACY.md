@@ -52,4 +52,4 @@ Supervise younger users as you would with any chat app.
 ## Contact
 
 Murmur is open-source software. Questions and issues:
-https://github.com/markovo1234/Ohh-shitings-bloothuts-shity
+https://github.com/markovo1234/Murmur
