@@ -47,6 +47,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material3.FilterChip
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import app.murmur.data.NearbyChannel
+import app.murmur.data.ChatRepository
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -118,6 +124,8 @@ data class ChatsUiState(
     val channels: List<ConversationRow> = emptyList(),
     val rows: List<ConversationRow> = emptyList(),
     val now: Long = 0L,
+    /** Channels in use nearby that I'm not in (with that lock state). */
+    val nearbyChannels: List<NearbyChannel> = emptyList(),
 ) {
     val anyUnread: Boolean get() = nearbyUnread > 0 || channels.any { it.unread > 0 } || rows.any { it.unread > 0 }
 }
@@ -130,7 +138,13 @@ class ChatsViewModel(private val c: AppContainer) : ViewModel() {
         }
     }
 
-    val state: StateFlow<ChatsUiState> = combine(c.chats.conversations, c.chats.channels, c.peers.peers, ticker) { conversations, channels, peers, now ->
+    val state: StateFlow<ChatsUiState> = combine(
+        c.chats.conversations,
+        c.chats.channels,
+        c.peers.peers,
+        ticker,
+        c.chats.nearbyChannels,
+    ) { conversations, channels, peers, now, nearbyChannels ->
         val nearby = conversations.firstOrNull { it.id == NEARBY_CONVERSATION }
         val byId = peers.associateBy { it.id.toHex() }
         val convById = conversations.associateBy { it.id }
@@ -174,6 +188,10 @@ class ChatsViewModel(private val c: AppContainer) : ViewModel() {
                 )
             },
             now = now,
+            nearbyChannels = nearbyChannels.filter { nc ->
+                now - nc.lastSeen < ChatRepository.NEARBY_CHANNEL_MILLIS &&
+                    channels.none { it.name == nc.name && (it.keyHex != null) == nc.locked }
+            },
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatsUiState())
 
@@ -332,6 +350,7 @@ fun ChatsScreen(state: ChatsUiState, contentPadding: PaddingValues, actions: Cha
 
     if (joinOpen) {
         JoinChannelDialog(
+            nearby = state.nearbyChannels,
             onJoin = actions.onJoin,
             onJoined = { name ->
                 joinOpen = false
@@ -549,7 +568,12 @@ private fun OptionItem(label: String, icon: ImageVector, danger: Boolean = false
 }
 
 @Composable
-private fun JoinChannelDialog(onJoin: suspend (String, String?) -> JoinResult, onJoined: (String) -> Unit, onDismiss: () -> Unit) {
+private fun JoinChannelDialog(
+    nearby: List<NearbyChannel>,
+    onJoin: suspend (String, String?) -> JoinResult,
+    onJoined: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
     var name by rememberSaveable { mutableStateOf("") }
     var protect by rememberSaveable { mutableStateOf(false) }
     var password by rememberSaveable { mutableStateOf("") }
@@ -558,6 +582,10 @@ private fun JoinChannelDialog(onJoin: suspend (String, String?) -> JoinResult, o
     val normalized = Channels.normalize(name)
     val shownName = normalized?.let { "#$it" }
     val canJoin = normalized != null && (!protect || password.length >= MIN_PASSWORD) && !busy
+    // Someone nearby uses this name with a password (and nobody without): switch the password on.
+    val lockedNearby = normalized != null && nearby.any { it.name == normalized && it.locked }
+    val openNearby = normalized != null && nearby.any { it.name == normalized && !it.locked }
+    LaunchedEffect(normalized) { if (lockedNearby && !openNearby) protect = true }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -565,9 +593,28 @@ private fun JoinChannelDialog(onJoin: suspend (String, String?) -> JoinResult, o
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    "Channels are topic rooms that reach people nearby and hop through the mesh. Anyone who types the same name joins the same channel.",
+                    "Channels are topic rooms that reach people nearby and hop through the mesh. Anyone who types the same name " +
+                        "(and the same password, if it has one) joins the same channel. Easiest: ask someone inside to invite you.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
+                if (nearby.isNotEmpty()) {
+                    Text("Active nearby", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                    Row(
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        for (nc in nearby) {
+                            FilterChip(
+                                selected = normalized == nc.name && protect == nc.locked,
+                                onClick = {
+                                    name = nc.name
+                                    protect = nc.locked
+                                },
+                                label = { Text(if (nc.locked) "🔒 #${nc.name}" else "#${nc.name}") },
+                            )
+                        }
+                    }
+                }
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it.take(Channels.MAX_LENGTH + 2) },
@@ -598,6 +645,19 @@ private fun JoinChannelDialog(onJoin: suspend (String, String?) -> JoinResult, o
                     }
                     Switch(checked = protect, onCheckedChange = { protect = it })
                 }
+                if (lockedNearby && !protect) {
+                    Text(
+                        "🔒 People nearby use a password for $shownName. Without it you won't see their messages.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                } else if (openNearby && protect && !lockedNearby) {
+                    Text(
+                        "People nearby use $shownName without a password. With one, you'll be in a separate channel.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
                 if (protect) {
                     OutlinedTextField(
                         value = password,
@@ -606,7 +666,11 @@ private fun JoinChannelDialog(onJoin: suspend (String, String?) -> JoinResult, o
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        supportingText = { Text("At least $MIN_PASSWORD characters. Share it in person.") },
+                        supportingText = {
+                            Text(
+                                if (lockedNearby) "Ask whoever made it for the password" else "At least $MIN_PASSWORD characters. Share it in person or invite people.",
+                            )
+                        },
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }

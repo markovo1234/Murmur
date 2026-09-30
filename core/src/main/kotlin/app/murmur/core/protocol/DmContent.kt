@@ -35,7 +35,12 @@ enum class DmKind(val code: Int) {
     CALL_ANSWER(10),
 
     /** Either side hangs up / cancels: body = [CallSignal.EndReason] wire name. */
-    CALL_END(11);
+    CALL_END(11),
+
+    // Since 1.3.
+
+    /** An invitation to a channel: body = [ChannelInvites.body] (name + key for password channels). */
+    CHANNEL_INVITE(12);
 
     /** Control kinds are sent once and never answered with receipts. */
     val isControl: Boolean get() = code >= REACTION.code

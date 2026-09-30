@@ -20,6 +20,35 @@ object Channels {
     }
 }
 
+/**
+ * A channel invitation sent in an end-to-end encrypted DM (1.3): "1 <name> <64 hex key | ->". For a
+ * password channel it carries the derived key (never the password), so the invitee can read it at once.
+ */
+object ChannelInvites {
+    const val VERSION: Int = 1
+
+    class Invite(val channel: String, val key: ByteArray?) {
+        val locked: Boolean get() = key != null
+    }
+
+    fun body(channel: String, key: ByteArray?): String {
+        require(Channels.isValid(channel)) { "bad channel" }
+        require(key == null || key.size == KEY_SIZE) { "bad key" }
+        return "$VERSION $channel ${key?.let(Bytes::toHex) ?: "-"}"
+    }
+
+    /** Null if malformed. Extra fields (later versions) are ignored. */
+    fun parse(body: String): Invite? {
+        val parts = body.trim().split(' ')
+        if (parts.size < 3 || parts[0].toIntOrNull() != VERSION || !Channels.isValid(parts[1])) return null
+        if (parts[2] == "-") return Invite(parts[1], null)
+        val key = Bytes.fromHex(parts[2])?.takeIf { it.size == KEY_SIZE } ?: return null
+        return Invite(parts[1], key)
+    }
+
+    private const val KEY_SIZE = 32
+}
+
 enum class RoomKind(val code: Int) {
     TEXT(1),
 

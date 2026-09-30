@@ -92,6 +92,7 @@ class MeshNode(
     private val seenMessages = BoundedSet<Pair<PeerId, MessageId>>(config.dedupeCapacity)
     private val outgoing = LinkedHashMap<MessageId, OutgoingDm>()
     private val lastTypingSent = HashMap<PeerId, Long>()
+    private val channelSeenAt = HashMap<Pair<String, Boolean>, Long>()
 
     private val _events = MutableSharedFlow<MeshEvent>(extraBufferCapacity = Int.MAX_VALUE)
 
@@ -422,12 +423,14 @@ class MeshNode(
     private fun deliverRoom(packet: Packet, payload: Payload.Room, rec: PeerRecord) {
         val sender = packet.senderId
         val plain = if (payload.encrypted) {
-            val key = channelKeys[payload.channel] ?: return // not a member: relayed, not shown
-            ChannelCrypto.open(key, payload.body, ChannelCrypto.aad(packet.packetId.toBytes(), sender.toBytes(), packet.timestamp, payload.channel))
-                ?: return
+            channelKeys[payload.channel]?.let { key ->
+                ChannelCrypto.open(key, payload.body, ChannelCrypto.aad(packet.packetId.toBytes(), sender.toBytes(), packet.timestamp, payload.channel))
+            }
         } else {
             payload.body
         }
+        if (payload.channel.isNotEmpty()) noteChannel(payload.channel, payload.encrypted, readable = plain != null, sender)
+        if (plain == null) return // not a member (or a different password): relayed, not shown
         val content = RoomContent.decode(plain) ?: return
         rec.nickname = content.nickname
         tracer.onDelivered(packet)
@@ -446,6 +449,18 @@ class MeshNode(
                 hops = hopsOf(rec, packet),
             ),
         )
+    }
+
+    /** Channel discovery: rate-limited per channel and lock state. */
+    private fun noteChannel(channel: String, encrypted: Boolean, readable: Boolean, sender: PeerId) {
+        if (sender in blocked) return
+        val now = clock.now()
+        val key = channel to encrypted
+        val last = channelSeenAt[key]
+        if (last != null && now - last < config.channelSeenInterval) return
+        if (channelSeenAt.size > MAX_CHANNELS_TRACKED) channelSeenAt.clear()
+        channelSeenAt[key] = now
+        emit(MeshEvent.ChannelSeen(channel, encrypted, readable, sender))
     }
 
     private fun handlePrivate(packet: Packet, rec: PeerRecord, linkId: String) {
@@ -470,7 +485,7 @@ class MeshNode(
             DmKind.READ -> onReceipt(sender, content.messageId, DeliveryStatus.READ)
             DmKind.TYPING -> if (sender !in blocked) emit(MeshEvent.Typing(sender))
             DmKind.REACTION, DmKind.RETRACT, DmKind.WAVE, DmKind.TIMER,
-            DmKind.CALL_OFFER, DmKind.CALL_ANSWER, DmKind.CALL_END,
+            DmKind.CALL_OFFER, DmKind.CALL_ANSWER, DmKind.CALL_END, DmKind.CHANNEL_INVITE,
             -> if (sender !in blocked) {
                 emit(MeshEvent.DirectControl(sender, content.kind, content.messageId, content.body, packet.timestamp))
             }
@@ -691,5 +706,6 @@ class MeshNode(
 
     private companion object {
         const val NEVER = 0L
+        const val MAX_CHANNELS_TRACKED = 256
     }
 }

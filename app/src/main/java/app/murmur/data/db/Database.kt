@@ -33,6 +33,9 @@ object MessageKind {
 
     /** An emergency alert in #nearby. */
     const val SOS = 2
+
+    /** A channel invitation in a DM; body = [app.murmur.core.protocol.ChannelInvites] format. */
+    const val INVITE = 3
 }
 
 @Entity(tableName = "peers")
@@ -196,7 +199,7 @@ interface MessageDao {
     fun observeConversation(conversationId: String, limit: Int): Flow<List<MessageEntity>>
 
     @Query(
-        "SELECT * FROM messages WHERE conversationId = :conversationId AND retracted = 0 AND kind != 1 " +
+        "SELECT * FROM messages WHERE conversationId = :conversationId AND retracted = 0 AND kind IN (0, 2) " +
             "AND body LIKE '%' || :query || '%' ESCAPE '\\' ORDER BY sortKey DESC LIMIT 200",
     )
     fun search(conversationId: String, query: String): Flow<List<MessageEntity>>

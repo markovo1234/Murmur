@@ -199,6 +199,19 @@ class Notifier(private val context: Context) {
 
     fun cancelCall() = manager.cancel(CALL_ID)
 
+    fun showInvite(peer: PeerId, name: String, channel: String, hideContent: Boolean) {
+        val conversation = peer.toHex()
+        val n = NotificationCompat.Builder(context, CHANNEL_DM)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(if (hideContent) context.getString(R.string.app_name) else context.getString(R.string.invite_title, name, channel))
+            .setContentText(context.getString(R.string.invite_text))
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_SOCIAL)
+            .setContentIntent(openApp(conversation, conversation.hashCode()))
+            .build()
+        post(conversation.hashCode(), n)
+    }
+
     private fun callAction(action: String): PendingIntent = PendingIntent.getBroadcast(
         context,
         action.hashCode(),

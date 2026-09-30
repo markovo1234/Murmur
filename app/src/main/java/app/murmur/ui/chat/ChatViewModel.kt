@@ -4,6 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.murmur.AppContainer
 import app.murmur.call.StartCallResult
+import app.murmur.core.protocol.Bytes
+import app.murmur.core.protocol.ChannelInvites
+import app.murmur.data.InviteResult
 import app.murmur.core.mesh.DeliveryStatus
 import app.murmur.core.protocol.PeerId
 import app.murmur.core.text.Replies
@@ -44,6 +47,9 @@ enum class ChatKind { DIRECT, NEARBY, CHANNEL }
 
 data class ReactionUi(val emoji: String, val count: Int, val mine: Boolean)
 
+/** A channel invitation shown as a card in a DM. [joined] = I'm in it with the same password (or none). */
+data class InviteUi(val channel: String, val locked: Boolean, val joined: Boolean)
+
 data class MessageUi(
     val id: String,
     /** Body without the reply quote line. */
@@ -73,8 +79,10 @@ data class MessageUi(
     val expiresAt: Long = 0,
     /** The name everyone else knows the sender by (their own nickname, never my private alias). */
     val publicName: String = senderName,
+    val invite: InviteUi? = null,
 ) {
     val isText: Boolean get() = kind == MessageKind.TEXT
+    val isInvite: Boolean get() = kind == MessageKind.INVITE
     val isSystem: Boolean get() = kind == MessageKind.SYSTEM
     val isSos: Boolean get() = kind == MessageKind.SOS
 
@@ -113,6 +121,8 @@ data class ChatUiState(
     /** People to suggest after "@" in rooms. */
     val mentionNames: List<String> = emptyList(),
     val searchResults: List<SearchHit>? = null,
+    /** Channels: people in range who could be invited. */
+    val invitePeople: List<Peer> = emptyList(),
 ) {
     val isNearby: Boolean get() = kind == ChatKind.NEARBY
     val isRoom: Boolean get() = kind != ChatKind.DIRECT
@@ -132,6 +142,11 @@ class ChatViewModel(private val c: AppContainer, private val conversationId: Str
 
     /** One-off messages for a snackbar. */
     val events: SharedFlow<String> = _events.asSharedFlow()
+
+    private val _navigate = MutableSharedFlow<String>(extraBufferCapacity = 1)
+
+    /** Conversation ids to open (after joining a channel from an invite). */
+    val navigate: SharedFlow<String> = _navigate.asSharedFlow()
 
     private val openedAt = c.clock.now()
 
@@ -228,7 +243,7 @@ class ChatViewModel(private val c: AppContainer, private val conversationId: Str
                 ChatKind.DIRECT -> peer?.let { Format.displayName(it, ct.peers) } ?: peerId?.let(PeerRepository::fallbackName) ?: "Chat"
             },
             subtitle = subtitle,
-            items = buildItems(ct, byId, ex.now),
+            items = buildItems(ct, byId, ex.now, ex.channels.associate { it.name to it.keyHex }),
             typing = peerId != null && peerId in ex.typing,
             blocked = peer?.blocked == true,
             loaded = true,
@@ -245,10 +260,16 @@ class ChatViewModel(private val c: AppContainer, private val conversationId: Str
                     .distinct().take(20)
             },
             searchResults = ex.search,
+            invitePeople = if (kind == ChatKind.CHANNEL) {
+                ct.peers.filter { it.isOnline && !it.blocked }
+                    .sortedWith(compareByDescending<Peer> { it.favorite }.thenBy { it.name.lowercase() })
+            } else {
+                emptyList()
+            },
         )
     }
 
-    private fun buildItems(ct: Content, peers: Map<String, Peer>, now: Long): List<ChatItem> {
+    private fun buildItems(ct: Content, peers: Map<String, Peer>, now: Long, channelKeys: Map<String, String?>): List<ChatItem> {
         val messages = ct.messages
         val reactionsByMessage = ct.reactions.groupBy { it.messageId }
         fun groupable(m: MessageEntity) = m.kind == MessageKind.TEXT && !m.retracted
@@ -294,6 +315,14 @@ class ChatViewModel(private val c: AppContainer, private val conversationId: Str
                     readAt = m.readAt,
                     expiresAt = m.expiresAt,
                     publicName = if (m.outgoing) ct.me?.nickname ?: m.senderNickname else m.senderNickname,
+                    invite = if (m.kind == MessageKind.INVITE) {
+                        ChannelInvites.parse(m.body)?.let { inv ->
+                            val keyHex = inv.key?.let(Bytes::toHex)
+                            InviteUi(inv.channel, inv.locked, joined = inv.channel in channelKeys && channelKeys[inv.channel] == keyHex)
+                        }
+                    } else {
+                        null
+                    },
                 ),
             )
             if (older == null || !Format.sameDay(m.sortKey, older.sortKey)) {
@@ -354,6 +383,30 @@ class ChatViewModel(private val c: AppContainer, private val conversationId: Str
             }
             problem?.let { _events.tryEmit(it) }
         }
+    }
+
+    fun joinInvite(messageId: String) {
+        viewModelScope.launch {
+            val target = c.chats.acceptInvite(messageId)
+            if (target != null) _navigate.tryEmit(target) else _events.tryEmit("That invitation can't be used.")
+        }
+    }
+
+    fun invite(peer: Peer) {
+        val name = channel ?: return
+        viewModelScope.launch {
+            val msg = when (c.chats.sendInvite(peer.id, name)) {
+                InviteResult.SENT -> "Invited ${peer.name} to #$name"
+                InviteResult.NOT_A_MEMBER -> "You're not in #$name anymore."
+                InviteResult.UNREACHABLE -> "Couldn't reach ${peer.name}. Try again when they're nearby."
+            }
+            _events.tryEmit(msg)
+        }
+    }
+
+    fun setPassword(password: String?) {
+        val name = channel ?: return
+        viewModelScope.launch { c.chats.setChannelPassword(name, password) }
     }
 
     fun wave() {

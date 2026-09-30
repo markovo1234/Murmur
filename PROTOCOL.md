@@ -100,7 +100,7 @@ Inner plaintext:
 
 | Size | Field |
 |---:|---|
-| 1 | kind: `1` TEXT, `2` DELIVERED, `3` READ, `4` TYPING; *(1.1)* `5` REACTION, `6` RETRACT, `7` WAVE, `8` TIMER; *(1.2)* `9` CALL_OFFER, `10` CALL_ANSWER, `11` CALL_END |
+| 1 | kind: `1` TEXT, `2` DELIVERED, `3` READ, `4` TYPING; *(1.1)* `5` REACTION, `6` RETRACT, `7` WAVE, `8` TIMER; *(1.2)* `9` CALL_OFFER, `10` CALL_ANSWER, `11` CALL_END; *(1.3)* `12` CHANNEL_INVITE |
 | 16 | `messageId` (TEXT: stable across resends; receipts: the acknowledged message) |
 | 32 | sender's X25519 public key (so the recipient can always reply) |
 | 2 + n | body: u16 length + UTF-8 (TEXT: 1–1000 bytes; others: see below) |
@@ -118,6 +118,7 @@ Relays forward PRIVATE packets they cannot read.
 | CALL_OFFER *(1.2)* | the call id | `1 amrnb <64 hex digits>`: version, codec, the call's 32-byte session key |
 | CALL_ANSWER *(1.2)* | the call id | `ringing`, `accept`, `decline`, `busy` or `unsupported` |
 | CALL_END *(1.2)* | the call id | `hangup`, `cancel`, `timeout` or `failed` |
+| CHANNEL_INVITE *(1.3)* | random | `1 <channel> <64 hex digits \| ->`: the channel and, for a password channel, its derived 32-byte key (never the password) |
 
 **Replies** are ordinary TEXT whose first line is `> Author: snippet` (snippet ≤ 80 characters)
 followed by a newline and the reply, so 1.0 phones show them as a readable quote.
@@ -152,6 +153,10 @@ Room content:
   share a name; they never mix.
 * Receivers deliver ROOM packets only for #nearby and channels they joined (and can decrypt); every
   valid ROOM packet is relayed regardless.
+* *(1.3)* Every phone notes the channel names (and whether they're encrypted) of the ROOM packets it
+  sees, members or not, to list "channels active nearby" and to explain an empty channel ("someone
+  nearby uses this name with a password" / "your password is different from theirs"). Names were
+  always visible to relays; this only surfaces them.
 * RETRACT is honoured only when the target was sent by the same `senderId`. SOS is only valid in
   #nearby. Senders may use `ttl` 3 instead of 7 ("short reach").
 * #nearby plain text still uses PUBLIC (`0x02`) so 1.0 phones see it; only REACTION, RETRACT and SOS

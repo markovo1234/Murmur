@@ -81,6 +81,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.KeyboardType
+import app.murmur.data.Peer
+import app.murmur.data.db.channelConversation
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
@@ -144,6 +150,10 @@ class ChatActions(
     val onSearch: (String?) -> Unit = {},
     val onSos: (String) -> Unit = {},
     val onCall: () -> Unit = {},
+    val onJoinInvite: (String) -> Unit = {},
+    val onOpenConversation: (String) -> Unit = {},
+    val onInvite: (Peer) -> Unit = {},
+    val onSetPassword: (String?) -> Unit = {},
 )
 
 @Composable
@@ -169,6 +179,7 @@ fun ChatRoute(conversationId: String, onBack: () -> Unit, onOpenChat: (String) -
     val newestKey = state.items.firstOrNull()?.key
     LaunchedEffect(newestKey, lockShowing) { if (newestKey != null && !lockShowing) vm.markRead() }
     LaunchedEffect(vm) { vm.events.collect { snackbar.showSnackbar(it) } }
+    LaunchedEffect(vm) { vm.navigate.collect { onOpenChat(it) } }
     LaunchedEffect(vm) { vm.waves.collect { haptics.performHapticFeedback(HapticFeedbackType.LongPress) } }
     LaunchedEffect(search) { vm.setSearch(search) }
     val calls = LocalContext.current.container.calls
@@ -212,6 +223,10 @@ fun ChatRoute(conversationId: String, onBack: () -> Unit, onOpenChat: (String) -
             onSearch = { search = it },
             onSos = vm::sendSos,
             onCall = { if (calls.hasMicPermission()) vm.call() else micLauncher.launch(Manifest.permission.RECORD_AUDIO) },
+            onJoinInvite = vm::joinInvite,
+            onOpenConversation = onOpenChat,
+            onInvite = vm::invite,
+            onSetPassword = vm::setPassword,
         ),
     )
 
@@ -244,6 +259,8 @@ fun ChatScreen(
     var confirmLeave by remember { mutableStateOf(false) }
     var timerDialog by remember { mutableStateOf(false) }
     var sosDialog by remember { mutableStateOf(false) }
+    var inviteSheet by remember { mutableStateOf(false) }
+    var passwordDialog by remember { mutableStateOf(false) }
     var actionsFor by remember { mutableStateOf<MessageUi?>(null) }
     var infoFor by remember { mutableStateOf<MessageUi?>(null) }
     var jumpTo by remember { mutableStateOf<String?>(null) }
@@ -266,6 +283,8 @@ fun ChatScreen(
                     onLeaveRequest = { confirmLeave = true },
                     onTimerRequest = { timerDialog = true },
                     onSosRequest = { sosDialog = true },
+                    onInviteRequest = { inviteSheet = true },
+                    onPasswordRequest = { passwordDialog = true },
                 )
             }
         },
@@ -369,6 +388,20 @@ fun ChatScreen(
             timerDialog = false
         }, onDismiss = { timerDialog = false })
     }
+    if (inviteSheet) {
+        InviteSheet(state, onInvite = actions.onInvite, onDismiss = { inviteSheet = false })
+    }
+    if (passwordDialog) {
+        ChannelPasswordDialog(
+            channel = state.title,
+            locked = state.channelLocked,
+            onSave = {
+                actions.onSetPassword(it)
+                passwordDialog = false
+            },
+            onDismiss = { passwordDialog = false },
+        )
+    }
     if (sosDialog) {
         SosDialog(onSend = {
             actions.onSos(it)
@@ -412,6 +445,8 @@ private fun ChatTopBar(
     onLeaveRequest: () -> Unit,
     onTimerRequest: () -> Unit,
     onSosRequest: () -> Unit,
+    onInviteRequest: () -> Unit,
+    onPasswordRequest: () -> Unit,
 ) {
     TopAppBar(
         navigationIcon = {
@@ -475,6 +510,8 @@ private fun ChatTopBar(
                                 add((if (state.muted) "Unmute" else "Mute") to actions.onToggleMute)
                             }
                             ChatKind.CHANNEL -> {
+                                add("Invite people…" to onInviteRequest)
+                                add((if (state.channelLocked) "Change password…" else "Add a password…") to onPasswordRequest)
                                 add((if (state.muted) "Unmute" else "Mute") to actions.onToggleMute)
                                 add("Leave channel" to onLeaveRequest)
                             }
@@ -644,6 +681,14 @@ private fun MessageList(
                         when {
                             msg.isSystem -> SystemLine(msg, animateIn, onLongPress = { onLongPress(msg) })
                             msg.isSos -> SosCard(msg, animateIn, onLongPress = { onLongPress(msg) })
+                            msg.isInvite -> InviteCard(
+                                msg = msg,
+                                maxWidth = maxBubble,
+                                animateIn = animateIn,
+                                onJoin = { actions.onJoinInvite(msg.id) },
+                                onOpen = { msg.invite?.let { actions.onOpenConversation(channelConversation(it.channel)) } },
+                                onLongPress = { onLongPress(msg) },
+                            )
                             else -> MessageBubble(
                                 msg = msg,
                                 isRoom = state.isRoom,
@@ -666,7 +711,7 @@ private fun MessageList(
                     Hint(
                         when (state.kind) {
                             ChatKind.NEARBY -> "Say hi to everyone in range 👋"
-                            ChatKind.CHANNEL -> "Nothing here yet. Share the channel name with friends nearby."
+                            ChatKind.CHANNEL -> "Nothing here yet. Tap ⋮ → Invite people to bring friends in."
                             ChatKind.DIRECT -> "No messages yet. Say hi 👋"
                         },
                     )
@@ -858,6 +903,95 @@ private fun SosDialog(onSend: (String) -> Unit, onDismiss: () -> Unit) {
         }, onDismiss = { confirmA11y = false })
     }
 }
+
+/** Channels: invite people in range. Password channels send the key along, so they can read at once. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun InviteSheet(state: ChatUiState, onInvite: (Peer) -> Unit, onDismiss: () -> Unit) {
+    val invited = remember { mutableStateListOf<PeerId>() }
+    ModalBottomSheet(onDismissRequest = onDismiss, shape = RoundedCornerShape(topStart = Dimens.SheetRadius, topEnd = Dimens.SheetRadius)) {
+        Column(Modifier.navigationBarsPadding().padding(bottom = 16.dp)) {
+            Text(
+                "Invite to ${state.title}",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 24.dp),
+            )
+            Text(
+                if (state.channelLocked) {
+                    "They get an encrypted invitation with the password built in, so they don't need to type it."
+                } else {
+                    "They get an invitation in your direct chat and join with one tap."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+            )
+            if (state.invitePeople.isEmpty()) {
+                Hint("Nobody is in range right now. People appear here when their phone is nearby or reachable through the mesh.")
+            }
+            LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                items(state.invitePeople, key = { it.id.toHex() }) { peer ->
+                    val done = peer.id in invited
+                    ListItem(
+                        leadingContent = { EmojiAvatar(peer.emoji, peer.colorIndex, 40.dp, online = true, verified = peer.verified) },
+                        headlineContent = { Text(peer.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        supportingContent = { Text(Format.peerStatus(peer), maxLines = 1) },
+                        trailingContent = {
+                            if (done) {
+                                Text("Invited ✓", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                            } else {
+                                FilledTonalButton(onClick = {
+                                    invited += peer.id
+                                    onInvite(peer)
+                                }) { Text("Invite") }
+                            }
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChannelPasswordDialog(channel: String, locked: Boolean, onSave: (String?) -> Unit, onDismiss: () -> Unit) {
+    var password by rememberSaveable { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (locked) "Change password" else "Add a password") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Everyone in $channel must use the same password to see each other's messages. " +
+                        "Changing it only changes it on this phone: tell the others, or invite them again.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it.take(64) },
+                    label = { Text("New password") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    supportingText = { Text("At least $MIN_CHANNEL_PASSWORD characters") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = password.length >= MIN_CHANNEL_PASSWORD, onClick = { onSave(password) }) { Text("Save") }
+        },
+        dismissButton = {
+            Row {
+                if (locked) TextButton(onClick = { onSave(null) }) { Text("Remove password") }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
+    )
+}
+
+private const val MIN_CHANNEL_PASSWORD = 4
 
 @Composable
 fun ConfirmDialog(title: String, text: String, confirm: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {

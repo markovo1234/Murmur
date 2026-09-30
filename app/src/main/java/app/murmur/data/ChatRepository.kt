@@ -11,6 +11,7 @@ import app.murmur.core.mesh.DeliveryStatus
 import app.murmur.core.mesh.MeshEvent
 import app.murmur.core.mesh.MeshNode
 import app.murmur.core.protocol.Bytes
+import app.murmur.core.protocol.ChannelInvites
 import app.murmur.core.protocol.Channels
 import app.murmur.core.protocol.DmKind
 import app.murmur.core.protocol.MessageId
@@ -47,6 +48,11 @@ import kotlinx.coroutines.withContext
 data class SosAlert(val id: String, val peerId: PeerId, val nickname: String, val text: String, val time: Long, val hops: Int, val mine: Boolean)
 
 enum class SosResult { SENT, TOO_SOON, NO_MESH }
+
+/** A channel someone nearby is using (seen in the last [ChatRepository.NEARBY_CHANNEL_MILLIS]). */
+data class NearbyChannel(val name: String, val locked: Boolean, val lastSeen: Long)
+
+enum class InviteResult { SENT, NOT_A_MEMBER, UNREACHABLE }
 
 sealed interface JoinResult {
     data class Joined(val name: String) : JoinResult
@@ -108,6 +114,11 @@ class ChatRepository(
     /** Active emergency alerts (newest first). */
     val sosAlerts: StateFlow<List<SosAlert>> = _sos.asStateFlow()
     private var lastSosAt = 0L
+    private val _nearbyChannels = MutableStateFlow<Map<Pair<String, Boolean>, NearbyChannel>>(emptyMap())
+
+    /** Channels in use around me, newest first (names are visible to every relay; contents aren't). */
+    val nearbyChannels: Flow<List<NearbyChannel>> = _nearbyChannels.map { m -> m.values.sortedByDescending { it.lastSeen } }
+    private val lastChannelHintAt = HashMap<String, Long>()
     private val lastWaveAt = HashMap<PeerId, Long>()
 
     private val me: Settings get() = settings.value
@@ -387,6 +398,107 @@ class ChatRepository(
         return JoinResult.Joined(name)
     }
 
+    /** Sets, changes or (with null/empty) removes the password of a channel I'm in. */
+    suspend fun setChannelPassword(name: String, password: String?) {
+        val existing = db.channels().get(name) ?: return
+        val key = password?.takeIf { it.isNotEmpty() }?.let { pw ->
+            withContext(Dispatchers.Default) { ChannelCrypto.deriveKey(name, pw) }
+        }
+        db.tx {
+            db.channels().upsert(existing.copy(keyHex = key?.let(Bytes::toHex)))
+            insertSystemLocked(
+                channelConversation(name),
+                null,
+                if (key != null) {
+                    "🔒 Password set. You'll see messages from everyone using the same password."
+                } else {
+                    "Password removed: #$name is open to anyone who joins it."
+                },
+                unread = false,
+            )
+        }
+        log.log("CHAT", "#$name password ${if (key != null) "set" else "removed"}")
+    }
+
+    /** Sends an invitation (with the key, for a password channel) in an encrypted DM. */
+    suspend fun sendInvite(peer: PeerId, channel: String): InviteResult {
+        val ch = db.channels().get(channel) ?: return InviteResult.NOT_A_MEMBER
+        val body = ChannelInvites.body(channel, ch.keyHex?.let(Bytes::fromHex))
+        val id = MessageId.random(random)
+        val sent = if (demo?.isDemoPeer(peer) == true) true else node()?.sendDirectControl(peer, DmKind.CHANNEL_INVITE, id, body) == true
+        if (!sent) return InviteResult.UNREACHABLE
+        val conversation = peer.toHex()
+        val now = clock.now()
+        db.tx {
+            val conv = db.conversations().get(conversation)
+            db.messages().insertOrIgnore(
+                MessageEntity(
+                    id = id.toHex(),
+                    conversationId = conversation,
+                    senderId = myId()?.toHex() ?: "",
+                    senderNickname = me.profile?.nickname.orEmpty(),
+                    body = body,
+                    sentAt = now,
+                    sortKey = now,
+                    outgoing = true,
+                    status = -1,
+                    hops = 0,
+                    seen = true,
+                    kind = MessageKind.INVITE,
+                    expiresAt = expiryFor(conv, now),
+                ),
+            )
+            touchConversation(conversation, conversation, "You invited them to #$channel", now, unreadDelta = 0)
+        }
+        log.log("CHAT", "invited ${nicknameOf(peer)} to #$channel")
+        return InviteResult.SENT
+    }
+
+    /** Joins the channel from an invite message. Returns the channel's conversation id. */
+    suspend fun acceptInvite(messageIdHex: String): String? {
+        val msg = db.messages().get(messageIdHex)?.takeIf { it.kind == MessageKind.INVITE } ?: return null
+        val invite = ChannelInvites.parse(msg.body) ?: return null
+        val keyHex = invite.key?.let(Bytes::toHex)
+        val existing = db.channels().get(invite.channel)
+        val from = if (msg.outgoing) null else peers().firstOrNull { it.id.toHex() == msg.senderId }?.name ?: msg.senderNickname
+        val lock = if (keyHex != null) " 🔒" else ""
+        val line = when {
+            existing == null -> "You joined #${invite.channel}$lock${from?.let { " (invited by $it)" } ?: ""}"
+            existing.keyHex != keyHex -> "#${invite.channel} now uses ${from?.let { "$it's" } ?: "the invite's"} ${if (keyHex != null) "password" else "open setting (no password)"}"
+            else -> null
+        }
+        db.tx {
+            db.channels().upsert(ChannelEntity(invite.channel, keyHex, existing?.joinedAt ?: clock.now()))
+            if (line != null) insertSystemLocked(channelConversation(invite.channel), null, line, unread = false)
+        }
+        return channelConversation(invite.channel)
+    }
+
+    /**
+     * Channel discovery, and the hints that explain an empty channel: someone nearby uses the same
+     * name with a password (or without), or with a different password.
+     */
+    private suspend fun onChannelSeen(e: MeshEvent.ChannelSeen) {
+        val now = clock.now()
+        _nearbyChannels.update { m ->
+            (m + ((e.channel to e.encrypted) to NearbyChannel(e.channel, e.encrypted, now)))
+                .filterValues { now - it.lastSeen < NEARBY_CHANNEL_MILLIS }
+        }
+        val member = db.channels().get(e.channel) ?: return
+        val hint = when {
+            member.keyHex == null && e.encrypted ->
+                "🔒 Someone nearby uses #${e.channel} with a password, so you can't see their messages. Ask them for it, then ⋮ → Password."
+            member.keyHex != null && !e.encrypted ->
+                "Someone nearby uses #${e.channel} without a password, so you can't see each other. To join them: ⋮ → Password → leave it empty."
+            member.keyHex != null && !e.readable ->
+                "🔒 A message in #${e.channel} couldn't be unlocked: your password is different from theirs. Check it with them: ⋮ → Password."
+            else -> return
+        }
+        if (now - (lastChannelHintAt[e.channel] ?: 0L) < CHANNEL_HINT_MILLIS) return
+        lastChannelHintAt[e.channel] = now
+        insertSystem(channelConversation(e.channel), null, hint, unread = false)
+    }
+
     suspend fun leaveChannel(name: String) {
         db.channels().delete(name)
         deleteConversation(channelConversation(name))
@@ -419,6 +531,7 @@ class ChatRepository(
                     hops = event.hops,
                 )
                 is MeshEvent.DirectControl -> receiveDirectControl(event.senderId, event.kind, event.messageId.toHex(), event.body)
+                is MeshEvent.ChannelSeen -> onChannelSeen(event)
                 is MeshEvent.LinkIdentified, is MeshEvent.CallAudio -> Unit
             }
         } catch (e: Exception) {
@@ -580,6 +693,34 @@ class ChatRepository(
                 if (!open && conv?.muted != true) notifier.showWave(sender, name)
                 _waves.value = sender to clock.now()
             }
+            DmKind.CHANNEL_INVITE -> {
+                val invite = ChannelInvites.parse(body) ?: return
+                val now = clock.now()
+                val open = openConversation.value == conversationId
+                val conv = db.tx {
+                    val existing = db.conversations().get(conversationId)
+                    val row = db.messages().insertOrIgnore(
+                        MessageEntity(
+                            id = messageIdHex,
+                            conversationId = conversationId,
+                            senderId = conversationId,
+                            senderNickname = nicknameOf(sender),
+                            body = body,
+                            sentAt = now,
+                            sortKey = now,
+                            outgoing = false,
+                            status = -1,
+                            hops = 0,
+                            seen = true,
+                            kind = MessageKind.INVITE,
+                            expiresAt = expiryFor(existing, now),
+                        ),
+                    )
+                    val preview = "${if (invite.locked) "🔒 " else ""}Invite to #${invite.channel}"
+                    if (row == -1L) null else touchConversation(conversationId, conversationId, preview, now, unreadDelta = if (open) 0 else 1)
+                } ?: return
+                if (!open && !conv.muted) notifier.showInvite(sender, name, invite.channel, hideContent)
+            }
             DmKind.TIMER -> {
                 val seconds = body.toLongOrNull()?.coerceIn(0, Disappearing.MAX_SECONDS) ?: return
                 ensureConversation(conversationId, conversationId)
@@ -730,6 +871,7 @@ class ChatRepository(
             latest == null -> ""
             latest.retracted -> "Message deleted"
             latest.kind == MessageKind.SYSTEM -> latest.body
+            latest.kind == MessageKind.INVITE -> ChannelInvites.parse(latest.body)?.let { "Invite to #${it.channel}" }.orEmpty()
             latest.outgoing -> "You: ${Replies.parse(latest.body).text}"
             conversationId == NEARBY_CONVERSATION || channelOf(conversationId) != null -> "${latest.senderNickname}: ${Replies.parse(latest.body).text}"
             else -> Replies.parse(latest.body).text
@@ -766,6 +908,8 @@ class ChatRepository(
         const val SOS_BANNER_MILLIS = 30 * 60 * 1000L
         const val SOS_MAX_CHARS = 200
         const val WAVE_INTERVAL_MILLIS = 10_000L
+        const val NEARBY_CHANNEL_MILLIS = 30 * 60_000L
+        const val CHANNEL_HINT_MILLIS = 10 * 60_000L
         val REACTIONS = listOf("👍", "❤️", "😂", "😮", "😢", "🙏")
     }
 }

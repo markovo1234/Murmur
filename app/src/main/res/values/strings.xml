@@ -34,4 +34,6 @@
     <string name="call_ongoing_text">Tap to return to the call</string>
     <string name="call_missed_title">📞 Missed call from %1$s %2$s</string>
     <string name="call_missed_hidden">📞 Missed Murmur call</string>
+    <string name="invite_title">%1$s invited you to #%2$s</string>
+    <string name="invite_text">Tap to join the channel</string>
 </resources>

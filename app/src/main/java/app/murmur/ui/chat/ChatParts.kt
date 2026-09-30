@@ -49,6 +49,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
@@ -499,6 +501,55 @@ fun SosCard(msg: MessageUi, animateIn: Boolean, onLongPress: () -> Unit) {
             }
             Text(msg.body.ifEmpty { "Needs help nearby" }, style = MaterialTheme.typography.bodyLarge)
             Text(Format.clock(msg.time), style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+/** A channel invitation in a DM: Join (or Open, once you're in with the same password). */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun InviteCard(msg: MessageUi, maxWidth: androidx.compose.ui.unit.Dp, animateIn: Boolean, onJoin: () -> Unit, onOpen: () -> Unit, onLongPress: () -> Unit) {
+    val invite = msg.invite ?: return
+    val appear = rememberAppear(animateIn)
+    val rise = with(LocalDensity.current) { 16.dp.toPx() }
+    val who = if (msg.outgoing) "You sent an invitation" else "${msg.senderName} invited you"
+    Box(
+        Modifier.fillMaxWidth().appear(appear, rise).padding(horizontal = 12.dp, vertical = 6.dp),
+        contentAlignment = if (msg.outgoing) Alignment.CenterEnd else Alignment.CenterStart,
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            shape = MaterialTheme.shapes.large,
+            modifier = Modifier
+                .widthIn(max = maxWidth)
+                .clip(MaterialTheme.shapes.large)
+                .combinedClickable(onLongClickLabel = "Message actions", onClick = {}, onLongClick = onLongPress)
+                .semantics(mergeDescendants = true) {
+                    contentDescription = "$who to #${invite.channel}${if (invite.locked) ", password protected" else ""}"
+                },
+        ) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RoomIcon(ChatKind.CHANNEL, invite.locked, 40.dp)
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text("#${invite.channel}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (invite.locked) "$who · password included" else who,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(Format.clock(msg.time), style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                    if (invite.joined) {
+                        FilledTonalButton(onClick = onOpen) { Text("Open") }
+                    } else {
+                        Button(onClick = onJoin) { Text("Join #${invite.channel}", maxLines = 1) }
+                    }
+                }
+            }
         }
     }
 }

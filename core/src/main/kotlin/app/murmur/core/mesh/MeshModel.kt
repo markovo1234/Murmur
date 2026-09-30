@@ -73,6 +73,13 @@ sealed interface MeshEvent {
         val hops: Int,
     ) : MeshEvent
 
+    /**
+     * A named channel is active nearby (1.3). Sent for every channel, joined or not, at most every
+     * [MeshConfig.channelSeenInterval] per channel and lock state. [readable] is false for a password
+     * channel I have no key for, or whose key doesn't match mine.
+     */
+    data class ChannelSeen(val channel: String, val encrypted: Boolean, val readable: Boolean, val senderId: PeerId) : MeshEvent
+
     /** One chunk of call audio addressed to me (still sealed with the call key). */
     class CallAudio(val senderId: PeerId, val callId: MessageId, val seq: Long, val sealed: ByteArray) : MeshEvent
 
@@ -107,6 +114,7 @@ data class MeshConfig(
     val maxAge: Long = 12 * 60 * 60 * 1000L,
     val typingInterval: Long = 3_000,
     val statusTick: Long = 5_000,
+    val channelSeenInterval: Long = 20_000,
 )
 
 enum class DropReason { DUPLICATE, MALFORMED, SENDER_KEY_MISMATCH, BAD_SIGNATURE, STALE_TIMESTAMP, UNDECRYPTABLE }

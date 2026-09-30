@@ -26,6 +26,17 @@ as other Murmur phones sit in between. The app **has no internet permission**.
 - Light and dark themes (dark-first), optional dynamic color, TalkBack labels everywhere, and respect
   for the system "Remove animations" setting.
 
+### New in 1.3: joining private channels
+
+- **Invite people**: in a channel, ⋮ → **Invite people…** sends an encrypted invitation to anyone in
+  range. For a password channel the password travels inside it, so they just tap **Join**.
+- **Channels active nearby** appear in the Join dialog; tap one to fill in its name (🔒 ones still
+  need the password or an invite).
+- If you join a channel but see nothing, Murmur now tells you why: someone nearby uses that name
+  with a password (or without one), or your password is different from theirs.
+- ⋮ → **Add a password / Change password…** in any channel, so you can fix a wrong password without
+  leaving.
+
 ### New in 1.2: voice calls
 
 - Tap the 📞 button in a direct chat to **call** someone. Calls are end-to-end encrypted and go over
@@ -161,6 +172,12 @@ keep Bluetooth on. Open **Settings → Diagnostics** on any phone to see links, 
    - Call again and don't answer: after ~35 s A shows "No answer" and B gets a missed-call notification.
    - Optional: repeat with a third phone relaying (A and C out of range): the route reads "Through the
      mesh · 2 hops"; the Diagnostics log on B shows the relaying.
+9. **Private channels (two phones with 1.3)**
+   - On A: Chats → **Join channel** → `#secret`, Password on, `pass1234` → Join. Post a message.
+   - On B: Chats → **Join channel**: "🔒 #secret" appears under **Active nearby** (after A's message).
+     Joining without the password shows a red hint; B's #secret then explains that A uses a password.
+   - On A: #secret → ⋮ → **Invite people…** → Invite B. B gets "A invited you to #secret" in their
+     chat with A → **Join #secret** → B sees A's next messages.
 
 Single phone? Turn on **Demo mode** (Settings → Diagnostics) to see the radar, chats, ticks, typing,
 replies, reactions, waves and a demo channel without other phones.
