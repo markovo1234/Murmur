@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import app.murmur.core.mesh.Profile
@@ -28,6 +29,28 @@ data class Settings(
     val readReceipts: Boolean = true,
     val nearbyNotifications: Boolean = false,
     val demoMode: Boolean = false,
+    // 1.1
+    val appLock: AppLockSettings = AppLockSettings(),
+    val hideNotificationContent: Boolean = false,
+    val batterySaver: Boolean = false,
+    /** ttl for #nearby and channel messages: 7 = normal reach, 3 = short. */
+    val publicReach: Int = REACH_NORMAL,
+    val favoriteAlerts: Boolean = true,
+    /** Messages this phone relayed for others, all time. */
+    val relayedTotal: Long = 0,
+) {
+    companion object {
+        const val REACH_NORMAL = 7
+        const val REACH_SHORT = 3
+    }
+}
+
+data class AppLockSettings(
+    val enabled: Boolean = false,
+    val pinHashHex: String = "",
+    val pinSaltHex: String = "",
+    /** Lock after the app has been in the background this long (0 = immediately). */
+    val timeoutMillis: Long = 0,
 )
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
@@ -45,6 +68,15 @@ class SettingsRepository(private val context: Context) {
         val readReceipts = booleanPreferencesKey("read_receipts")
         val nearbyNotifications = booleanPreferencesKey("nearby_notifications")
         val demoMode = booleanPreferencesKey("demo_mode")
+        val lockEnabled = booleanPreferencesKey("lock_enabled")
+        val lockHash = stringPreferencesKey("lock_hash")
+        val lockSalt = stringPreferencesKey("lock_salt")
+        val lockTimeout = longPreferencesKey("lock_timeout")
+        val hideContent = booleanPreferencesKey("hide_notification_content")
+        val batterySaver = booleanPreferencesKey("battery_saver")
+        val publicReach = intPreferencesKey("public_reach")
+        val favoriteAlerts = booleanPreferencesKey("favorite_alerts")
+        val relayedTotal = longPreferencesKey("relayed_total")
     }
 
     val settings: Flow<Settings> = context.dataStore.data
@@ -63,6 +95,17 @@ class SettingsRepository(private val context: Context) {
                 readReceipts = p[Keys.readReceipts] ?: true,
                 nearbyNotifications = p[Keys.nearbyNotifications] ?: false,
                 demoMode = p[Keys.demoMode] ?: false,
+                appLock = AppLockSettings(
+                    enabled = (p[Keys.lockEnabled] ?: false) && !p[Keys.lockHash].isNullOrEmpty(),
+                    pinHashHex = p[Keys.lockHash].orEmpty(),
+                    pinSaltHex = p[Keys.lockSalt].orEmpty(),
+                    timeoutMillis = p[Keys.lockTimeout] ?: 0L,
+                ),
+                hideNotificationContent = p[Keys.hideContent] ?: false,
+                batterySaver = p[Keys.batterySaver] ?: false,
+                publicReach = (p[Keys.publicReach] ?: Settings.REACH_NORMAL).coerceIn(1, 7),
+                favoriteAlerts = p[Keys.favoriteAlerts] ?: true,
+                relayedTotal = p[Keys.relayedTotal] ?: 0L,
             )
         }
 
@@ -82,6 +125,25 @@ class SettingsRepository(private val context: Context) {
     suspend fun setReadReceipts(on: Boolean) = context.dataStore.edit { it[Keys.readReceipts] = on }
     suspend fun setNearbyNotifications(on: Boolean) = context.dataStore.edit { it[Keys.nearbyNotifications] = on }
     suspend fun setDemoMode(on: Boolean) = context.dataStore.edit { it[Keys.demoMode] = on }
+
+    suspend fun setAppLock(hashHex: String, saltHex: String) = context.dataStore.edit {
+        it[Keys.lockHash] = hashHex
+        it[Keys.lockSalt] = saltHex
+        it[Keys.lockEnabled] = true
+    }
+
+    suspend fun disableAppLock() = context.dataStore.edit {
+        it[Keys.lockEnabled] = false
+        it.remove(Keys.lockHash)
+        it.remove(Keys.lockSalt)
+    }
+
+    suspend fun setLockTimeout(millis: Long) = context.dataStore.edit { it[Keys.lockTimeout] = millis }
+    suspend fun setHideNotificationContent(on: Boolean) = context.dataStore.edit { it[Keys.hideContent] = on }
+    suspend fun setBatterySaver(on: Boolean) = context.dataStore.edit { it[Keys.batterySaver] = on }
+    suspend fun setPublicReach(ttl: Int) = context.dataStore.edit { it[Keys.publicReach] = ttl.coerceIn(1, 7) }
+    suspend fun setFavoriteAlerts(on: Boolean) = context.dataStore.edit { it[Keys.favoriteAlerts] = on }
+    suspend fun addRelayed(count: Long) = context.dataStore.edit { it[Keys.relayedTotal] = (it[Keys.relayedTotal] ?: 0L) + count }
 
     suspend fun clear() = context.dataStore.edit { it.clear() }
 }

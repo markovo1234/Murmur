@@ -8,4 +8,18 @@
     <string name="service_text">Relaying messages over Bluetooth</string>
     <string name="action_stop">Stop</string>
     <string name="nearby_notification_title">%1$s in #nearby</string>
+    <string name="channel_sos">Emergency alerts (SOS)</string>
+    <string name="channel_people">Favorites nearby</string>
+    <string name="hidden_message">New message</string>
+    <string name="room_notification_title">%1$s in %2$s</string>
+    <string name="mention_title">%1$s mentioned you in %2$s</string>
+    <string name="wave_title">👋 %1$s waved at you</string>
+    <string name="sos_title">🆘 SOS from %1$s</string>
+    <string name="sos_default">Needs help nearby</string>
+    <plurals name="hops_away">
+        <item quantity="one">%d hop away</item>
+        <item quantity="other">%d hops away</item>
+    </plurals>
+    <string name="favorite_nearby_title">%1$s %2$s is nearby</string>
+    <string name="favorite_nearby_text">Tap to say hi</string>
 </resources>

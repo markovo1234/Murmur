@@ -9,6 +9,7 @@ import app.murmur.ble.BlePermissions
 import app.murmur.ble.SystemStatus
 import app.murmur.core.Clock
 import app.murmur.core.crypto.Identity
+import app.murmur.data.AppLock
 import app.murmur.data.ChatRepository
 import app.murmur.data.PeerRepository
 import app.murmur.data.Settings
@@ -74,6 +75,8 @@ class AppContainer(val app: Application) {
         scope = appScope,
     )
 
+    val appLock = AppLock(settingsState, settings, clock)
+
     val bleSupported: Boolean =
         BlePermissions.hasBleHardware(app) && app.getSystemService(BluetoothManager::class.java)?.adapter != null
 
@@ -97,6 +100,13 @@ class AppContainer(val app: Application) {
             settings.settings.map { it.demoMode }.distinctUntilChanged().collect { on -> if (on) demo.start() else demo.stop() }
         }
         appScope.launch {
+            while (true) {
+                chats.purgeExpired()
+                delay(EXPIRY_SWEEP_MILLIS)
+            }
+        }
+        appScope.launch { watchFavorites() }
+        appScope.launch {
             // Onboarding just finished → start the mesh.
             settingsState.filterNotNull().map { it.onboardingDone }.distinctUntilChanged().collect { if (it) startMeshIfReady() }
         }
@@ -112,6 +122,7 @@ class AppContainer(val app: Application) {
 
     private fun onAppForeground() {
         isAppInForeground = true
+        appLock.onForeground()
         system.refresh()
         mesh.setForeground(true)
         appScope.launch { startMeshIfReady() }
@@ -119,6 +130,7 @@ class AppContainer(val app: Application) {
 
     private fun onAppBackground() {
         isAppInForeground = false
+        appLock.onBackground()
         val keepRunning = settingsState.value?.keepRunningInBackground ?: true
         if (keepRunning) {
             mesh.setForeground(false)
@@ -153,7 +165,30 @@ class AppContainer(val app: Application) {
         appScope.launch(Dispatchers.IO) { _identity.value = identityStore.loadOrCreate() }
     }
 
+    /** "⭐ Luna is nearby" when a favorite comes into range (at most every 30 minutes per person). */
+    private suspend fun watchFavorites() {
+        var previous: Map<app.murmur.core.protocol.PeerId, Boolean>? = null
+        val lastAlert = HashMap<app.murmur.core.protocol.PeerId, Long>()
+        peers.peers.collect { list ->
+            val online = list.filter { it.favorite && !it.blocked }.associate { it.id to it.isOnline }
+            val before = previous
+            if (before != null && settingsState.value?.favoriteAlerts == true) {
+                val now = clock.now()
+                for (peer in list) {
+                    val cameOnline = online[peer.id] == true && before[peer.id] != true
+                    if (cameOnline && now - (lastAlert[peer.id] ?: 0L) > FAVORITE_ALERT_GAP_MILLIS) {
+                        lastAlert[peer.id] = now
+                        notifier.showFavoriteNearby(peer.id, peer.name, peer.emoji)
+                    }
+                }
+            }
+            previous = online
+        }
+    }
+
     private companion object {
         const val PURGE_INTERVAL_MILLIS = 60 * 60 * 1000L
+        const val EXPIRY_SWEEP_MILLIS = 30_000L
+        const val FAVORITE_ALERT_GAP_MILLIS = 30 * 60 * 1000L
     }
 }

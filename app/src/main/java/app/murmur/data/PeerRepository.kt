@@ -31,13 +31,21 @@ data class Peer(
     val blocked: Boolean,
     val signingKey: ByteArray?,
     val isDemo: Boolean = false,
+    val favorite: Boolean = false,
+    /** A name only this phone uses. */
+    val alias: String? = null,
+    val firstSeen: Long = 0L,
 ) {
     val isOnline: Boolean get() = status != PeerStatus.OFFLINE
+
+    /** What to call them: your alias if you set one, else their nickname. */
+    val name: String get() = alias ?: nickname
 
     override fun equals(other: Any?): Boolean = other is Peer && id == other.id && nickname == other.nickname &&
         emoji == other.emoji && colorIndex == other.colorIndex && status == other.status && hops == other.hops &&
         rssi == other.rssi && lastSeen == other.lastSeen && verified == other.verified && blocked == other.blocked &&
-        isDemo == other.isDemo && (signingKey?.contentEquals(other.signingKey) ?: (other.signingKey == null))
+        isDemo == other.isDemo && favorite == other.favorite && alias == other.alias && firstSeen == other.firstSeen &&
+        (signingKey?.contentEquals(other.signingKey) ?: (other.signingKey == null))
 
     override fun hashCode(): Int = id.hashCode() * 31 + status.hashCode()
 }
@@ -72,6 +80,20 @@ class PeerRepository(
         db.peers().setVerified(id.toHex(), verified)
     }
 
+    suspend fun setFavorite(id: PeerId, favorite: Boolean) {
+        demo?.takeIf { it.isDemoPeer(id) }?.let { return it.setFavorite(id, favorite) }
+        ensureRow(id)
+        db.peers().setFavorite(id.toHex(), favorite)
+    }
+
+    /** Blank clears the alias. */
+    suspend fun setAlias(id: PeerId, alias: String?) {
+        val clean = alias?.trim()?.take(40)?.takeIf { it.isNotEmpty() }
+        demo?.takeIf { it.isDemoPeer(id) }?.let { return it.setAlias(id, clean) }
+        ensureRow(id)
+        db.peers().setAlias(id.toHex(), clean)
+    }
+
     /** Persists what the mesh learned (nickname, avatar, key, last seen). Keeps verified/blocked flags. */
     suspend fun remember(infos: Collection<PeerInfo>) {
         for (info in infos) {
@@ -85,6 +107,9 @@ class PeerRepository(
                 lastSeen = maxOf(info.lastHeard, existing?.lastSeen ?: 0L),
                 verified = existing?.verified ?: false,
                 blocked = existing?.blocked ?: false,
+                favorite = existing?.favorite ?: false,
+                alias = existing?.alias,
+                firstSeen = existing?.firstSeen?.takeIf { it > 0 } ?: info.lastHeard,
             )
             if (updated != existing) db.peers().upsert(updated)
         }
@@ -101,6 +126,7 @@ class PeerRepository(
                 colorIndex = live?.colorIndex ?: 0,
                 signingKey = live?.signingKey?.let(Bytes::toHex),
                 lastSeen = live?.lastSeen ?: 0L,
+                firstSeen = live?.firstSeen?.takeIf { it > 0 } ?: live?.lastSeen ?: 0L,
             ),
         )
     }
@@ -122,6 +148,9 @@ class PeerRepository(
                 verified = s?.verified ?: false,
                 blocked = s?.blocked ?: false,
                 signingKey = info.signingKey ?: s?.signingKey?.let(Bytes::fromHex),
+                favorite = s?.favorite ?: false,
+                alias = s?.alias,
+                firstSeen = s?.firstSeen?.takeIf { it > 0 } ?: info.lastHeard,
             )
         }
         for (s in stored) {
@@ -139,6 +168,9 @@ class PeerRepository(
                 verified = s.verified,
                 blocked = s.blocked,
                 signingKey = s.signingKey?.let(Bytes::fromHex),
+                favorite = s.favorite,
+                alias = s.alias,
+                firstSeen = s.firstSeen,
             )
         }
         return result
@@ -149,8 +181,9 @@ class PeerRepository(
 
         fun fallbackName(id: PeerId): String = "Peer #${id.shortTag}"
 
-        /** Nearby (strongest signal first), then via mesh (fewest hops), then offline (most recent). */
+        /** Nearby (strongest signal first), then via mesh (fewest hops), then offline (most recent). Favorites first within each. */
         val PEER_ORDER: Comparator<Peer> = compareBy<Peer> { it.status.ordinal }
+            .thenByDescending { it.favorite }
             .thenByDescending { it.rssi ?: Int.MIN_VALUE }
             .thenBy { it.hops }
             .thenByDescending { it.lastSeen }

@@ -73,6 +73,29 @@ class MeshRuntime(private val c: AppContainer, identity: Identity, profile: Prof
         workScope.launch {
             node.peers.sample(PERSIST_PEERS_MILLIS).collect { c.peers.remember(it.values) }
         }
+        workScope.launch {
+            c.chats.channelKeys.collect { node.setChannelKeys(it) }
+        }
+        workScope.launch {
+            c.settings.settings.map { it.batterySaver }.distinctUntilChanged().collect {
+                node.setPowerSave(it)
+                transport.setPowerSave(it)
+            }
+        }
+        workScope.launch {
+            node.stats.sample(PERSIST_STATS_MILLIS).collect { persistRelayed(it.relayed) }
+        }
+    }
+
+    private var relayedPersisted = 0L
+
+    /** Adds this session's new relays to the all-time counter shown in Settings. */
+    private suspend fun persistRelayed(relayed: Long) {
+        val delta = relayed - relayedPersisted
+        if (delta > 0) {
+            relayedPersisted = relayed
+            c.settings.addRelayed(delta)
+        }
     }
 
     fun setForeground(foreground: Boolean) {
@@ -82,6 +105,7 @@ class MeshRuntime(private val c: AppContainer, identity: Identity, profile: Prof
 
     /** Graceful shutdown: flood LEAVE, give it a moment to go out, then tear down. */
     suspend fun stop() {
+        withTimeoutOrNull(1_000) { persistRelayed(node.stats.value.relayed) }
         withTimeoutOrNull(1_000) { node.sendLeave() }
         delay(400)
         node.stop()
@@ -93,5 +117,6 @@ class MeshRuntime(private val c: AppContainer, identity: Identity, profile: Prof
 
     private companion object {
         const val PERSIST_PEERS_MILLIS = 5_000L
+        const val PERSIST_STATS_MILLIS = 30_000L
     }
 }

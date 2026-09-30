@@ -1,5 +1,6 @@
 package app.murmur.demo
 
+import app.murmur.core.text.Replies
 import app.murmur.core.Clock
 import app.murmur.core.SecureRandomSource
 import app.murmur.core.SeededRandomSource
@@ -9,6 +10,8 @@ import app.murmur.core.mesh.PeerStatus
 import app.murmur.core.protocol.MessageId
 import app.murmur.core.protocol.PacketId
 import app.murmur.core.protocol.PeerId
+import app.murmur.core.protocol.DmKind
+import app.murmur.core.protocol.RoomKind
 import app.murmur.data.ChatRepository
 import app.murmur.data.DemoGateway
 import app.murmur.data.Peer
@@ -84,6 +87,8 @@ class DemoMode(
         var verified = false
         var replyIndex = 0
         var nearbyIndex = 0
+        var favorite = false
+        var alias: String? = null
     }
 
     private var demoPeers: List<DemoPeer> = emptyList()
@@ -99,9 +104,12 @@ class DemoMode(
 
     override fun isDemoPeer(peer: PeerId): Boolean = demoPeers.any { it.identity.peerId == peer }
 
+    private var startedAt = 0L
+
     fun start() {
         if (isEnabled) return
         isEnabled = true
+        startedAt = clock.now()
         demoPeers = scripts.map { DemoPeer(it, Identity.generate(SeededRandomSource(it.seed))) }
         log.log("DEMO", "demo mode on: ${demoPeers.size} fake peers")
         publish()
@@ -118,6 +126,22 @@ class DemoMode(
                 delay(random.nextLong(20_000, 40_000))
             }
         }
+        jobs += scope.launch {
+            // A demo channel so channels can be tried on one phone too.
+            chats.joinChannel(DEMO_CHANNEL, null)
+            delay(9_000)
+            var i = 0
+            while (isActive) {
+                val p = demoPeers.filter { !it.blocked }.randomOrNull(random)
+                if (p != null) {
+                    chats.receiveRoom(
+                        PacketId.random(SecureRandomSource()).toHex(), p.identity.peerId, DEMO_CHANNEL, false,
+                        RoomKind.TEXT, p.script.nickname, null, CHANNEL_LINES[i++ % CHANNEL_LINES.size], clock.now(), p.hops,
+                    )
+                }
+                delay(random.nextLong(30_000, 60_000))
+            }
+        }
     }
 
     fun stop() {
@@ -132,6 +156,7 @@ class DemoMode(
             // Fully remove everything the demo created.
             for (id in ids) chats.deleteConversation(id)
             db.messages().deleteFromSenders(ids)
+            chats.leaveChannel(DEMO_CHANNEL)
             log.log("DEMO", "demo mode off: removed demo peers and their messages")
         }
     }
@@ -144,6 +169,38 @@ class DemoMode(
     fun setVerified(peer: PeerId, verified: Boolean) {
         demoPeers.firstOrNull { it.identity.peerId == peer }?.verified = verified
         publish()
+    }
+
+    fun setFavorite(peer: PeerId, favorite: Boolean) {
+        demoPeers.firstOrNull { it.identity.peerId == peer }?.favorite = favorite
+        publish()
+    }
+
+    fun setAlias(peer: PeerId, alias: String?) {
+        demoPeers.firstOrNull { it.identity.peerId == peer }?.alias = alias
+        publish()
+    }
+
+    override fun onOutgoingChannel(channel: String, body: String) {
+        if (!isEnabled || channel != DEMO_CHANNEL || random.nextInt(100) >= 70) return
+        val p = demoPeers.filter { !it.blocked }.randomOrNull(random) ?: return
+        scope.launch {
+            delay(random.nextLong(2_000, 5_000))
+            if (isEnabled) {
+                chats.receiveRoom(
+                    PacketId.random(SecureRandomSource()).toHex(), p.identity.peerId, DEMO_CHANNEL, false,
+                    RoomKind.TEXT, p.script.nickname, null, listOf("Welcome!", "👋", "Same here", "Nice one").random(random), clock.now(), p.hops,
+                )
+            }
+        }
+    }
+
+    override fun onWave(peer: PeerId) {
+        val p = demoPeers.firstOrNull { it.identity.peerId == peer } ?: return
+        scope.launch {
+            delay(2_000)
+            if (isEnabled && !p.blocked) chats.receiveDirectControl(peer, DmKind.WAVE, MessageId.random(SecureRandomSource()).toHex(), "")
+        }
     }
 
     override fun onOutgoingDirect(peer: PeerId, messageIdHex: String, body: String) {
@@ -163,7 +220,12 @@ class DemoMode(
                 chats.receiveTyping(peer)
                 delay(1_400)
             }
-            val reply = p.script.replies[p.replyIndex % p.script.replies.size]
+            if (random.nextInt(100) < 40) {
+                chats.receiveDirectControl(peer, DmKind.REACTION, messageIdHex, listOf("❤️", "👍", "😂").random(random))
+            }
+            val line = p.script.replies[p.replyIndex % p.script.replies.size]
+            // Every third reply quotes your message, like a real reply.
+            val reply = if (p.replyIndex % 3 == 2) Replies.compose("You", body, line) else line
             p.replyIndex++
             if (isEnabled) {
                 chats.receiveDirect(MessageId.random(SecureRandomSource()).toHex(), peer, p.script.nickname, reply, clock.now(), p.hops)
@@ -217,7 +279,20 @@ class DemoMode(
                 blocked = p.blocked,
                 signingKey = p.identity.signing.publicKey,
                 isDemo = true,
+                favorite = p.favorite,
+                alias = p.alias,
+                firstSeen = startedAt,
             )
         }
+    }
+
+    private companion object {
+        const val DEMO_CHANNEL = "demo-lounge"
+        val CHANNEL_LINES = listOf(
+            "Welcome to #demo-lounge, a pretend channel 🎪",
+            "Channels are like #nearby, but only for people who joined",
+            "Give a channel a password and only people who know it can read it",
+            "Long-press any message to react or reply",
+        )
     }
 }

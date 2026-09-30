@@ -30,6 +30,11 @@ class Notifier(private val context: Context) {
                 },
                 NotificationChannel(CHANNEL_DM, context.getString(R.string.channel_dm), NotificationManager.IMPORTANCE_HIGH),
                 NotificationChannel(CHANNEL_NEARBY, context.getString(R.string.channel_nearby), NotificationManager.IMPORTANCE_DEFAULT),
+                NotificationChannel(CHANNEL_SOS, context.getString(R.string.channel_sos), NotificationManager.IMPORTANCE_HIGH).apply {
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 400, 200, 400, 200, 800)
+                },
+                NotificationChannel(CHANNEL_PEOPLE, context.getString(R.string.channel_people), NotificationManager.IMPORTANCE_DEFAULT),
             ),
         )
     }
@@ -57,31 +62,84 @@ class Notifier(private val context: Context) {
 
     fun updateService(nearby: Int) = post(SERVICE_ID, serviceNotification(nearby))
 
-    fun showDirect(peer: PeerId, nickname: String, emoji: String, text: String) {
+    fun showDirect(peer: PeerId, nickname: String, emoji: String, text: String, hideContent: Boolean) {
         val conversation = peer.toHex()
+        val body = if (hideContent) context.getString(R.string.hidden_message) else text
         val n = NotificationCompat.Builder(context, CHANNEL_DM)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("$emoji $nickname")
-            .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentTitle(if (hideContent) context.getString(R.string.app_name) else "$emoji $nickname")
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setContentIntent(openApp(conversation, conversation.hashCode()))
             .build()
         post(conversation.hashCode(), n)
     }
 
-    fun showNearby(nickname: String, text: String) {
-        val n = NotificationCompat.Builder(context, CHANNEL_NEARBY)
+    /** #nearby or a channel. Mentions use the DM channel so they stand out. */
+    fun showRoom(conversationId: String, roomTitle: String, nickname: String, text: String, mention: Boolean, hideContent: Boolean) {
+        val title = when {
+            hideContent -> context.getString(R.string.app_name)
+            mention -> context.getString(R.string.mention_title, nickname, roomTitle)
+            else -> context.getString(R.string.room_notification_title, nickname, roomTitle)
+        }
+        val body = if (hideContent) context.getString(R.string.hidden_message) else text
+        val n = NotificationCompat.Builder(context, if (mention) CHANNEL_DM else CHANNEL_NEARBY)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(context.getString(R.string.nearby_notification_title, nickname))
-            .setContentText(text)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setContentIntent(openApp(NEARBY_CONVERSATION, NEARBY_CONVERSATION.hashCode()))
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setContentIntent(openApp(conversationId, conversationId.hashCode()))
             .build()
-        post(NEARBY_CONVERSATION.hashCode(), n)
+        post(conversationId.hashCode(), n)
+    }
+
+    fun showWave(peer: PeerId, name: String) {
+        val conversation = peer.toHex()
+        val n = NotificationCompat.Builder(context, CHANNEL_DM)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(context.getString(R.string.wave_title, name))
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setContentIntent(openApp(conversation, conversation.hashCode()))
+            .build()
+        post(conversation.hashCode(), n)
+    }
+
+    /** Emergency alert: high priority, always shown. */
+    fun showSos(nickname: String, text: String, hops: Int) {
+        val body = text.ifEmpty { context.getString(R.string.sos_default) }
+        val n = NotificationCompat.Builder(context, CHANNEL_SOS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(context.getString(R.string.sos_title, nickname))
+            .setContentText(body)
+            .setSubText(context.resources.getQuantityString(R.plurals.hops_away, hops, hops))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setContentIntent(openApp(NEARBY_CONVERSATION, SOS_ID))
+            .build()
+        post(SOS_ID + (nickname.hashCode() and 0xFFFF), n)
+    }
+
+    fun showFavoriteNearby(peer: PeerId, name: String, emoji: String) {
+        val conversation = peer.toHex()
+        val n = NotificationCompat.Builder(context, CHANNEL_PEOPLE)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(context.getString(R.string.favorite_nearby_title, emoji, name))
+            .setContentText(context.getString(R.string.favorite_nearby_text))
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_SOCIAL)
+            .setContentIntent(openApp(conversation, conversation.hashCode() + 1))
+            .build()
+        post(FAVORITE_ID + (conversation.hashCode() and 0xFFFF), n)
     }
 
     fun cancelConversation(conversationId: String) = manager.cancel(conversationId.hashCode())
@@ -112,5 +170,9 @@ class Notifier(private val context: Context) {
         const val CHANNEL_SERVICE = "mesh"
         const val CHANNEL_DM = "direct_messages"
         const val CHANNEL_NEARBY = "nearby"
+        const val CHANNEL_SOS = "sos_alerts"
+        const val CHANNEL_PEOPLE = "people"
+        private const val SOS_ID = 0x5050000
+        private const val FAVORITE_ID = 0x4640000
     }
 }

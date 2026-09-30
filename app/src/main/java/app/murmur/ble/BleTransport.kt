@@ -100,6 +100,7 @@ class BleTransport(
     private var running = false
     private var radioUp = false
     private var foreground = true
+    private var powerSave = false
     private var receiverRegistered = false
 
     private var gattServer: BluetoothGattServer? = null
@@ -194,6 +195,35 @@ class BleTransport(
             }
         }
     }
+
+    /** Battery saver: low-power scan and advertising while in the background. */
+    fun setPowerSave(on: Boolean) {
+        scope.launch {
+            if (powerSave == on) return@launch
+            powerSave = on
+            log("battery saver ${if (on) "on" else "off"}")
+            if (radioUp && !foreground) {
+                restartScan()
+                restartAdvertising()
+            }
+        }
+    }
+
+    private val scanMode: Int
+        get() = when {
+            foreground -> ScanSettings.SCAN_MODE_LOW_LATENCY
+            powerSave -> ScanSettings.SCAN_MODE_LOW_POWER
+            else -> ScanSettings.SCAN_MODE_BALANCED
+        }
+
+    private val advertiseMode: Int
+        get() = when {
+            foreground -> AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY
+            powerSave -> AdvertiseSettings.ADVERTISE_MODE_LOW_POWER
+            else -> AdvertiseSettings.ADVERTISE_MODE_BALANCED
+        }
+
+    private val modeName: String get() = if (foreground) "low latency" else if (powerSave) "low power" else "balanced"
 
     // ------------------------------------------------------------------ radio up/down
 
@@ -367,7 +397,7 @@ class BleTransport(
             scope.launch {
                 advertiseState = AdvertiseState.ON
                 advertiseError = null
-                log("advertising (${if (foreground) "low latency" else "balanced"})")
+                log("advertising ($modeName)")
                 publish()
             }
         }
@@ -401,7 +431,7 @@ class BleTransport(
             return
         }
         val settings = AdvertiseSettings.Builder()
-            .setAdvertiseMode(if (foreground) AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY else AdvertiseSettings.ADVERTISE_MODE_BALANCED)
+            .setAdvertiseMode(advertiseMode)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
             .setConnectable(true)
             .setTimeout(0)
@@ -551,7 +581,7 @@ class BleTransport(
         }
         val filters = listOf(ScanFilter.Builder().setServiceUuid(SERVICE_PARCEL_UUID).build())
         val settings = ScanSettings.Builder()
-            .setScanMode(if (foreground) ScanSettings.SCAN_MODE_LOW_LATENCY else ScanSettings.SCAN_MODE_BALANCED)
+            .setScanMode(scanMode)
             .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
             .setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE)
             .setNumOfMatches(ScanSettings.MATCH_NUM_MAX_ADVERTISEMENT)
@@ -562,7 +592,7 @@ class BleTransport(
             scanner.startScan(filters, settings, scanCallback)
             scanState = ScanState.ON
             scanError = null
-            log("scan started (${if (foreground) "low latency" else "balanced"})")
+            log("scan started ($modeName)")
         } catch (e: SecurityException) {
             scanState = ScanState.FAILED
             scanError = "permission denied"
