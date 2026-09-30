@@ -1,9 +1,12 @@
 name: Release
 
-# Pushing a tag (e.g. `git tag v1.3.1 && git push origin v1.3.1`) builds that version and publishes a
-# GitHub Release with Murmur-<tag>.apk and Murmur-<tag>-debug.apk attached. Run it manually with an
-# existing tag to (re)build the release of an older version. Release notes come from
-# .github/release-notes/<tag>.md on main.
+# Publishes GitHub Releases with Murmur-<tag>.apk and Murmur-<tag>-debug.apk attached and the notes
+# from .github/release-notes/<tag>.md (read from main).
+#
+# - Push a tag (git tag v1.4.0 && git push origin v1.4.0) to release that version.
+# - Or run this workflow from the Actions tab: enter a version (e.g. v1.3.1), or "all" to publish every
+#   version listed in .github/release-notes/versions.txt. Missing tags are created on the listed
+#   commits; existing releases get their APKs and notes refreshed.
 on:
   push:
     tags:
@@ -11,28 +14,79 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing tag to build a release for (e.g. v1.3.1)'
+        description: 'Version to publish (e.g. v1.3.1), or "all"'
         required: true
+        default: 'all'
 
 permissions:
   contents: write
 
-concurrency:
-  group: release-${{ github.event.inputs.tag || github.ref_name }}
-
 jobs:
-  release:
-    name: Build and publish the APKs
+  plan:
+    name: Pick versions
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    env:
-      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
     steps:
-      - name: Check out the tag
+      - name: Check out main
         uses: actions/checkout@v7
         with:
-          ref: refs/tags/${{ env.TAG }}
-          # All history, so the notes can be read from main even for tags that predate them.
+          ref: main
+
+      - name: Plan
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT: ${{ github.event.inputs.tag }}
+          PUSHED_TAG: ${{ github.ref_name }}
+          PUSHED_SHA: ${{ github.sha }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+
+          known = {}
+          with open(".github/release-notes/versions.txt") as f:
+              for line in f:
+                  line = line.split("#", 1)[0].split()
+                  if len(line) == 2:
+                      known[line[0]] = line[1]
+
+          event, wanted = os.environ["EVENT"], os.environ.get("INPUT", "").strip()
+          if event == "push":
+              todo = {os.environ["PUSHED_TAG"]: os.environ["PUSHED_SHA"]}
+          elif wanted == "all":
+              todo = dict(known)
+          else:
+              todo = {wanted: known.get(wanted, wanted)}  # unknown: must be an existing tag
+
+          def key(tag):
+              return tuple(int(n) for n in re.findall(r"\d+", tag))
+
+          newest = max(list(known) + list(todo), key=key)
+          include = [{"tag": t, "sha": s, "latest": t == newest} for t, s in sorted(todo.items(), key=lambda kv: key(kv[0]))]
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write("matrix=" + json.dumps({"include": include}) + "\n")
+          print(json.dumps(include, indent=2))
+          PY
+
+  release:
+    name: Release ${{ matrix.tag }}
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      TAG: ${{ matrix.tag }}
+      LATEST: ${{ matrix.latest }}
+    steps:
+      - name: Check out ${{ matrix.tag }}
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ matrix.sha }}
+          # All history, so the notes can be read from main even for versions that predate them.
           fetch-depth: 0
 
       - name: Set up JDK 17
@@ -44,7 +98,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      # Tests and lint already ran for this commit in the Build workflow.
+      # Tests and lint already ran for these commits in the Build workflow.
       - name: Build APKs
         run: ./gradlew --no-daemon :app:dist
 
@@ -56,6 +110,7 @@ jobs:
           cp dist/Murmur.apk "Murmur-$TAG.apk"
           cp dist/Murmur-debug.apk "Murmur-$TAG-debug.apk"
           assets=("Murmur-$TAG.apk" "Murmur-$TAG-debug.apk")
+          sha=$(git rev-parse HEAD)
 
           notes_args=(--generate-notes)
           if git show "origin/main:.github/release-notes/$TAG.md" > notes.md 2>/dev/null; then
@@ -65,12 +120,14 @@ jobs:
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             gh release upload "$TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
             if [ -s notes.md ]; then
-              gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
+              gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file notes.md --latest="$LATEST"
             fi
           else
+            # Creates the tag on this commit if it doesn't exist yet.
             gh release create "$TAG" "${assets[@]}" \
               --repo "$GITHUB_REPOSITORY" \
+              --target "$sha" \
               --title "Murmur $TAG" \
-              --verify-tag \
+              --latest="$LATEST" \
               "${notes_args[@]}"
           fi
