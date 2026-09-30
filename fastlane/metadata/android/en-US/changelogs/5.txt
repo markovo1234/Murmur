@@ -1,1 +1,1 @@
-Voice calls, channel invites and nearby-channel discovery, plus touch animations.
+Touch animations. Murmur is now open source (Apache-2.0).

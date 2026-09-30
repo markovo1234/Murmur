@@ -1,0 +1,1 @@
+First release: offline Bluetooth mesh chat with encrypted direct messages.

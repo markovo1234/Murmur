@@ -2,6 +2,8 @@ name: Build
 
 on:
   push:
+    # Branches only: tag pushes are built by the Release workflow.
+    branches: ['**']
   workflow_dispatch:
 
 permissions:
