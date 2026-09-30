@@ -83,11 +83,13 @@ import app.murmur.data.db.channelConversation
 import app.murmur.data.db.channelOf
 import app.murmur.ui.chat.ChatKind
 import app.murmur.ui.chat.RoomIcon
+import app.murmur.ui.components.AnimatedCount
 import app.murmur.ui.components.EmojiAvatar
 import app.murmur.ui.components.Format
 import app.murmur.ui.components.MurmurIcons
 import app.murmur.ui.components.PreviewData
 import app.murmur.ui.components.PulsingDot
+import app.murmur.ui.components.pressBounce
 import app.murmur.ui.components.UnreadBadge
 import app.murmur.ui.components.sharedAvatar
 import app.murmur.ui.containerViewModel
@@ -382,6 +384,7 @@ private fun NearbyCard(state: ChatsUiState, onClick: () -> Unit, onLongClick: ()
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = Dimens.ScreenPadding, vertical = 8.dp)
+            .pressBounce(0.985f)
             .semantics { contentDescription = "#nearby, ${state.nearbyOnline} online, ${state.nearbyUnread} unread${if (state.nearbyMuted) ", muted" else ""}" },
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer),
@@ -407,7 +410,10 @@ private fun NearbyCard(state: ChatsUiState, onClick: () -> Unit, onLongClick: ()
                     Text("#nearby", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.width(8.dp))
                     PulsingDot(if (state.nearbyOnline > 0) MurmurTheme.colors.online else MaterialTheme.colorScheme.outline, size = 6.dp)
-                    Text("${state.nearbyOnline} online", style = MaterialTheme.typography.labelMedium)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        AnimatedCount(state.nearbyOnline, style = MaterialTheme.typography.labelMedium)
+                        Text(" online", style = MaterialTheme.typography.labelMedium)
+                    }
                     if (state.nearbyMuted) {
                         Spacer(Modifier.width(6.dp))
                         Icon(MurmurIcons.Muted, contentDescription = null, modifier = Modifier.size(14.dp))
@@ -445,6 +451,7 @@ private fun ConversationItem(row: ConversationRow, now: Long, onClick: () -> Uni
         modifier
             .fillMaxWidth()
             .heightIn(min = 72.dp)
+            .pressBounce(0.985f)
             .combinedClickable(
                 onClickLabel = "Open chat",
                 onLongClickLabel = "Chat options",

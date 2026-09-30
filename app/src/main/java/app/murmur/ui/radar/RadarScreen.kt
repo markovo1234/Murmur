@@ -42,12 +42,14 @@ import app.murmur.core.mesh.PeerStatus
 import app.murmur.core.protocol.PeerId
 import app.murmur.data.Peer
 import app.murmur.data.ThemeMode
+import app.murmur.ui.components.AnimatedCount
 import app.murmur.ui.components.EmojiAvatar
 import app.murmur.ui.components.Format
 import app.murmur.ui.components.HopBadge
 import app.murmur.ui.components.MurmurIcons
 import app.murmur.ui.components.PreviewData
 import app.murmur.ui.components.SignalBars
+import app.murmur.ui.components.pressBounce
 import app.murmur.ui.components.shimmer
 import app.murmur.ui.containerViewModel
 import app.murmur.ui.theme.Dimens
@@ -123,8 +125,9 @@ fun RadarScreen(
             ) {
                 Text("Nearby now", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 if (state.peers.isNotEmpty()) {
-                    Text(
-                        "  ${state.peers.size}",
+                    Spacer(Modifier.width(6.dp))
+                    AnimatedCount(
+                        state.peers.size,
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -185,6 +188,7 @@ private fun NearbyRow(peer: Peer, name: String, now: Long, onClick: () -> Unit, 
         modifier
             .fillMaxWidth()
             .heightIn(min = 64.dp)
+            .pressBounce()
             .clickable(onClickLabel = "Open profile", onClick = onClick)
             .padding(horizontal = Dimens.ScreenPadding, vertical = 8.dp)
             .semantics(mergeDescendants = true) {},

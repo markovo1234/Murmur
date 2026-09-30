@@ -55,6 +55,7 @@ import app.murmur.data.ThemeMode
 import app.murmur.ui.components.EmojiAvatar
 import app.murmur.ui.components.Format
 import app.murmur.ui.components.MurmurIcons
+import app.murmur.ui.components.pressBounce
 import app.murmur.ui.components.PreviewData
 import app.murmur.ui.containerViewModel
 import app.murmur.ui.peer.PeerSheet
@@ -185,6 +186,7 @@ private fun PersonRow(peer: Peer, now: Long, onClick: () -> Unit, onToggleFavori
         modifier
             .fillMaxWidth()
             .heightIn(min = 64.dp)
+            .pressBounce()
             .clickable(onClickLabel = "Open profile", onClick = onClick)
             .padding(start = Dimens.ScreenPadding, end = 4.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,

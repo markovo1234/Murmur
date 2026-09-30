@@ -29,6 +29,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -414,3 +418,86 @@ fun HoldToConfirmButton(
 /** Uses [LocalContentColor] at 70% for secondary text like timestamps. */
 @Composable
 fun metaColor(): Color = LocalContentColor.current.copy(alpha = 0.7f)
+
+// ------------------------------------------------------------------------ press bounce
+
+/**
+ * Tactile feedback: the content dips to [pressedScale] while held and springs back on release, like a
+ * physical key. Honours "Remove animations". Pair it with the caller's own [androidx.compose.foundation.clickable];
+ * this only animates.
+ */
+@Composable
+fun Modifier.pressBounce(pressedScale: Float = 0.96f): Modifier {
+    if (MurmurTheme.reduceMotion) return this
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (pressed) pressedScale else 1f,
+        animationSpec = Motion.pop(),
+        label = "pressBounce",
+    )
+    return this
+        .graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+        }
+        // An indication-less hoverable/pressable source so `pressed` tracks touches even when the
+        // caller's own clickable draws the ripple.
+        .hoverable(interaction)
+        .indication(interaction, null)
+        .then(
+            Modifier.pointerInput(interaction) {
+                detectTapGestures(
+                    onPress = {
+                        val press = androidx.compose.foundation.interaction.PressInteraction.Press(it)
+                        interaction.tryEmit(press)
+                        val released = tryAwaitRelease()
+                        interaction.tryEmit(
+                            if (released) {
+                                androidx.compose.foundation.interaction.PressInteraction.Release(press)
+                            } else {
+                                androidx.compose.foundation.interaction.PressInteraction.Cancel(press)
+                            },
+                        )
+                    },
+                )
+            },
+        )
+}
+
+// ------------------------------------------------------------------------ animated count
+
+/**
+ * A number that rolls when it changes: the old digits slide out and the new ones slide in (up when the
+ * value grows, down when it shrinks). Snaps when animations are off.
+ */
+@Composable
+fun AnimatedCount(
+    count: Int,
+    modifier: Modifier = Modifier,
+    style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.labelLarge,
+    color: Color = LocalContentColor.current,
+    fontWeight: FontWeight? = null,
+) {
+    val reduce = MurmurTheme.reduceMotion
+    androidx.compose.animation.AnimatedContent(
+        targetState = count,
+        transitionSpec = {
+            if (reduce) {
+                androidx.compose.animation.fadeIn(androidx.compose.animation.core.snap()) togetherWith
+                    androidx.compose.animation.fadeOut(androidx.compose.animation.core.snap())
+            } else {
+                val up = targetState > initialState
+                val enter = androidx.compose.animation.slideInVertically(Motion.pop()) { if (up) it else -it } +
+                    androidx.compose.animation.fadeIn()
+                val exit = androidx.compose.animation.slideOutVertically(Motion.move()) { if (up) -it else it } +
+                    androidx.compose.animation.fadeOut()
+                (enter togetherWith exit).using(androidx.compose.animation.SizeTransform(clip = false))
+            }
+        },
+        modifier = modifier,
+        label = "count",
+    ) { value ->
+        Text(value.toString(), style = style, color = color, fontWeight = fontWeight)
+    }
+}
