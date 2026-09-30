@@ -2,9 +2,13 @@
 
 Chat and call people nearby. No internet. No accounts. No servers.
 
-Murmur is an Android app where phones talk to each other over **Bluetooth Low Energy** and relay
-messages for each other in a mesh, so a message can reach someone who is out of your own range as long
-as other Murmur phones sit in between. The app **has no internet permission**.
+Murmur is a free, open-source Android app where phones talk to each other over **Bluetooth Low
+Energy** and relay messages for each other in a mesh, so a message can reach someone who is out of
+your own range as long as other Murmur phones sit in between. The app **has no internet permission**.
+
+**Get it:** grab the signed `Murmur.apk` from the [Releases](../../releases) page and sideload it, or
+build it yourself (below). Licensed under [Apache-2.0](LICENSE) · [Privacy policy](PRIVACY.md) ·
+[Contributing](CONTRIBUTING.md).
 
 ## Features
 
@@ -224,3 +228,28 @@ replies, reactions, waves and a demo channel without other phones.
   note above).
 - Not compatible with Bitchat or iOS.
 - Demo mode is a UI preview only; it never touches Bluetooth.
+
+## Publishing a release
+
+Releases are cut from a git tag. Tagging a commit builds the signed APK on GitHub Actions
+(`.github/workflows/release.yml`) and attaches it to a GitHub Release:
+
+```sh
+git tag v1.3.1
+git push origin v1.3.1
+```
+
+The same source is suitable for **F-Droid**: it has no proprietary dependencies, no Google Play
+services and no `INTERNET` permission. Listing text lives in `fastlane/metadata/`. F-Droid builds and
+signs the app from source on its own infrastructure, so no signing key is shared.
+
+> **Signing note:** release builds are currently signed with the debug keystore committed in
+> `keystore/` so that anyone can reproduce the exact APK. That is fine for sideloading and for
+> F-Droid (which re-signs), but **not** for Google Play. For Play, generate a private upload key (or
+> use Play App Signing), keep it out of the repository, and point the `release` `signingConfig` in
+> `app/build.gradle.kts` at it via CI secrets.
+
+## Licence
+
+Murmur is licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for third-party
+attributions. Contributions are welcome under the same licence — see [CONTRIBUTING.md](CONTRIBUTING.md).

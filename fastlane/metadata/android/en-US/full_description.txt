@@ -1,0 +1,18 @@
+Murmur lets you chat and make voice calls with people nearby over Bluetooth Low Energy, with no
+internet, no accounts and no servers. Phones relay messages for each other, so a message can reach
+someone out of your own range as long as other Murmur phones sit in between.
+
+The app has no INTERNET permission: it is incapable of sending your data over the network.
+
+Features:
+* Radar showing people nearby by signal strength, and people reachable through the mesh.
+* #nearby public room, plus named channels with an optional password (encrypted).
+* End-to-end encrypted direct messages with delivery and read receipts.
+* End-to-end encrypted voice calls over Bluetooth.
+* Replies, reactions, @mentions, disappearing messages, waves and an SOS alert.
+* Channel invites so friends can join private channels with one tap.
+* Optional PIN app lock, favourites, private nicknames, and a full dark theme.
+* Demo mode to try the whole app on a single phone.
+
+Murmur stores everything locally and can erase it all with a panic wipe. It is free and
+open-source software (Apache-2.0).
