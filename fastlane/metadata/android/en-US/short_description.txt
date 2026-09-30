@@ -1,0 +1,1 @@
+Offline Bluetooth mesh chat and calls. No internet, accounts or servers.

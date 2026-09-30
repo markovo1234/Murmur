@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="app_name">Murmur</string>
+    <string name="channel_service">Mesh status</string>
+    <string name="channel_dm">Direct messages</string>
+    <string name="channel_nearby">#nearby</string>
+    <string name="service_title" tools:ignore="PluralsCandidate">Murmur is active · %1$d nearby</string>
+    <string name="service_text">Relaying messages over Bluetooth</string>
+    <string name="action_stop">Stop</string>
+    <string name="channel_sos">Emergency alerts (SOS)</string>
+    <string name="channel_people">Favorites nearby</string>
+    <string name="hidden_message">New message</string>
+    <string name="room_notification_title">%1$s in %2$s</string>
+    <string name="mention_title">%1$s mentioned you in %2$s</string>
+    <string name="wave_title">👋 %1$s waved at you</string>
+    <string name="sos_title">🆘 SOS from %1$s</string>
+    <string name="sos_default">Needs help nearby</string>
+    <plurals name="hops_away">
+        <item quantity="one">%d hop away</item>
+        <item quantity="other">%d hops away</item>
+    </plurals>
+    <string name="favorite_nearby_title">%1$s %2$s is nearby</string>
+    <string name="favorite_nearby_text">Tap to say hi</string>
+    <string name="channel_calls">Incoming calls</string>
+    <string name="channel_call_ongoing">Ongoing call</string>
+    <string name="call_incoming_title">%1$s %2$s is calling</string>
+    <string name="call_incoming_hidden">Incoming Murmur call</string>
+    <string name="call_incoming_text">Voice call over Bluetooth</string>
+    <string name="call_answer">Answer</string>
+    <string name="call_decline">Decline</string>
+    <string name="call_hang_up">Hang up</string>
+    <string name="call_ongoing_title">In a call with %1$s</string>
+    <string name="call_ongoing_hidden">Murmur call in progress</string>
+    <string name="call_ongoing_text">Tap to return to the call</string>
+    <string name="call_missed_title">📞 Missed call from %1$s %2$s</string>
+    <string name="call_missed_hidden">📞 Missed Murmur call</string>
+    <string name="invite_title">%1$s invited you to #%2$s</string>
+    <string name="invite_text">Tap to join the channel</string>
+</resources>
