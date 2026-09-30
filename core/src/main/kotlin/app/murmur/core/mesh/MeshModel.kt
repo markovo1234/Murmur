@@ -1,10 +1,12 @@
 package app.murmur.core.mesh
 
 import app.murmur.core.Murmur
+import app.murmur.core.protocol.DmKind
 import app.murmur.core.protocol.MessageId
 import app.murmur.core.protocol.Packet
 import app.murmur.core.protocol.PacketId
 import app.murmur.core.protocol.PeerId
+import app.murmur.core.protocol.RoomKind
 
 data class Profile(val nickname: String, val emoji: String, val colorIndex: Int) {
     val isValid: Boolean
@@ -56,6 +58,29 @@ sealed interface MeshEvent {
     data class Typing(val peerId: PeerId) : MeshEvent
 
     data class LinkIdentified(val linkId: String, val peerId: PeerId) : MeshEvent
+
+    /** A ROOM packet: #nearby extras ([channel] = "") or a channel message. */
+    data class RoomMessage(
+        val packetId: PacketId,
+        val senderId: PeerId,
+        val channel: String,
+        val encrypted: Boolean,
+        val kind: RoomKind,
+        val nickname: String,
+        val target: PacketId?,
+        val body: String,
+        val timestamp: Long,
+        val hops: Int,
+    ) : MeshEvent
+
+    /** A DM reaction, retraction, wave or disappearing-messages timer. */
+    data class DirectControl(
+        val senderId: PeerId,
+        val kind: DmKind,
+        val messageId: MessageId,
+        val body: String,
+        val timestamp: Long,
+    ) : MeshEvent
 }
 
 data class MeshStats(
@@ -69,6 +94,7 @@ data class MeshStats(
 data class MeshConfig(
     val announceIntervalForeground: Long = 30_000,
     val announceIntervalBackground: Long = 60_000,
+    val announceIntervalPowerSave: Long = 120_000,
     val offlineAfter: Long = 90_000,
     val ackTimeout: Long = 30_000,
     val maxResends: Int = 3,

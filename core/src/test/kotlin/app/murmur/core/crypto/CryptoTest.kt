@@ -37,6 +37,11 @@ class CryptoTest {
             7, PacketId.random(random), BASE_TIME, random,
         )!!,
         PacketCodec.create(alice.signing, Payload.Leave, PeerId.BROADCAST, 7, PacketId.random(random), BASE_TIME),
+        PacketCodec.create(
+            alice.signing,
+            Payload.Room("", false, app.murmur.core.protocol.RoomContent(app.murmur.core.protocol.RoomKind.SOS, "Alice", null, "help").encode()),
+            PeerId.BROADCAST, 7, PacketId.random(random), BASE_TIME,
+        ),
     )
 
     @Test

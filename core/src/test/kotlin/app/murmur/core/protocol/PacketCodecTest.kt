@@ -35,6 +35,12 @@ class PacketCodecTest {
             7, PacketId.random(random), BASE_TIME + 2, random,
         )!!,
         PacketCodec.create(alice.signing, Payload.Leave, PeerId.BROADCAST, 7, PacketId.random(random), BASE_TIME + 3),
+        PacketCodec.create(
+            alice.signing,
+            Payload.Room("hiking", false, RoomContent(RoomKind.TEXT, "Alice", null, "trail?").encode()),
+            PeerId.BROADCAST, 7, PacketId.random(random), BASE_TIME + 4,
+        ),
+        PacketCodec.create(alice.signing, Payload.Unknown(99, byteArrayOf(1, 2, 3)), PeerId.BROADCAST, 7, PacketId.random(random), BASE_TIME + 5),
     )
 
     @Test

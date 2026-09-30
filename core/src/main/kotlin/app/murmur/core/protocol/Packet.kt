@@ -10,16 +10,25 @@ enum class PacketType(val code: Int) {
     ANNOUNCE(1),
     PUBLIC(2),
     PRIVATE(3),
-    LEAVE(4);
+    LEAVE(4),
+
+    /** Since 1.1: #nearby extras (reactions, retractions, SOS) and named channels. */
+    ROOM(5),
+
+    /** A type this version doesn't know. Verified and relayed, never delivered (forward compatibility). */
+    UNKNOWN(0);
 
     companion object {
-        fun fromCode(code: Int): PacketType? = entries.firstOrNull { it.code == code }
+        fun fromCode(code: Int): PacketType? = entries.firstOrNull { it.code == code && it != UNKNOWN }
     }
 }
 
 /** Typed packet payloads. Layouts are documented in PROTOCOL.md. */
 sealed interface Payload {
     val type: PacketType
+
+    /** The type byte on the wire. */
+    val typeCode: Int get() = type.code
 
     /** ANNOUNCE: who I am and how to encrypt to me. */
     class Announce(
@@ -57,6 +66,31 @@ sealed interface Payload {
     /** LEAVE: graceful shutdown. Empty. */
     data object Leave : Payload {
         override val type: PacketType get() = PacketType.LEAVE
+    }
+
+    /**
+     * ROOM (1.1): a message in #nearby ([channel] = "") or a named channel. [body] is an encoded
+     * [RoomContent], or — when [encrypted] — nonce || ChaCha20-Poly1305 ciphertext of one
+     * (see [app.murmur.core.crypto.ChannelCrypto]). Relays forward it without reading it.
+     */
+    class Room(val channel: String, val encrypted: Boolean, val body: ByteArray) : Payload {
+        override val type: PacketType get() = PacketType.ROOM
+
+        override fun equals(other: Any?): Boolean = other is Room && channel == other.channel &&
+            encrypted == other.encrypted && body.contentEquals(other.body)
+
+        override fun hashCode(): Int = channel.hashCode() * 31 + body.contentHashCode()
+        override fun toString(): String = "Room(#$channel, ${if (encrypted) "encrypted" else "plain"}, ${body.size} bytes)"
+    }
+
+    /** A packet type this version doesn't understand, kept verbatim so it can be relayed. */
+    class Unknown(val code: Int, val bytes: ByteArray) : Payload {
+        override val type: PacketType get() = PacketType.UNKNOWN
+        override val typeCode: Int get() = code
+
+        override fun equals(other: Any?): Boolean = other is Unknown && code == other.code && bytes.contentEquals(other.bytes)
+        override fun hashCode(): Int = code * 31 + bytes.contentHashCode()
+        override fun toString(): String = "Unknown(type $code, ${bytes.size} bytes)"
     }
 }
 
@@ -142,7 +176,7 @@ object PacketCodec {
         require(payloadBytes.size <= MAX_PAYLOAD) { "payload too large: ${payloadBytes.size}" }
         val w = ByteWriter(OVERHEAD + payloadBytes.size)
         w.u8(Murmur.PROTOCOL_VERSION)
-        w.u8(payload.type.code)
+        w.u8(payload.typeCode)
         w.u8(ttl)
         w.bytes(packetId.toBytes())
         w.bytes(senderId.toBytes())
@@ -200,7 +234,7 @@ object PacketCodec {
         val version = r.u8()
         if (version != Murmur.PROTOCOL_VERSION) throw DecodeException("unsupported version $version")
         val typeCode = r.u8()
-        val type = PacketType.fromCode(typeCode) ?: throw DecodeException("unknown type $typeCode")
+        val type = PacketType.fromCode(typeCode) ?: PacketType.UNKNOWN
         val ttl = r.u8()
         if (ttl !in 1..Murmur.INITIAL_TTL) throw DecodeException("bad ttl $ttl")
         val packetId = PacketId.fromBytes(r.bytes(PacketId.SIZE))
@@ -217,9 +251,10 @@ object PacketCodec {
         if (senderId.isBroadcast) throw DecodeException("broadcast sender")
         when (type) {
             PacketType.PRIVATE -> if (recipientId.isBroadcast) throw DecodeException("private to broadcast")
+            PacketType.UNKNOWN -> Unit
             else -> if (!recipientId.isBroadcast) throw DecodeException("$type must be broadcast")
         }
-        val payload = decodePayload(type, payloadBytes)
+        val payload = if (type == PacketType.UNKNOWN) Payload.Unknown(typeCode, payloadBytes) else decodePayload(type, payloadBytes)
         return Packet(version, ttl, packetId, senderId, recipientId, timestamp, senderKey, payload, signature, bytes.copyOf())
     }
 
@@ -247,9 +282,19 @@ object PacketCodec {
                 w.bytes(payload.ciphertext)
             }
             Payload.Leave -> Unit
+            is Payload.Room -> {
+                require(payload.channel.isEmpty() || Channels.isValid(payload.channel)) { "bad channel" }
+                require(payload.body.isNotEmpty())
+                w.u8(if (payload.encrypted) ROOM_FLAG_ENCRYPTED else 0)
+                w.string8(payload.channel)
+                w.bytes(payload.body)
+            }
+            is Payload.Unknown -> w.bytes(payload.bytes)
         }
         return w.toByteArray()
     }
+
+    private const val ROOM_FLAG_ENCRYPTED = 0x01
 
     private fun decodePayload(type: PacketType, bytes: ByteArray): Payload {
         val r = ByteReader(bytes)
@@ -260,12 +305,13 @@ object PacketCodec {
                 if (emoji.isEmpty() || emoji.any { it.isISOControl() }) throw DecodeException("bad emoji")
                 val color = r.u8()
                 if (color >= Murmur.AVATAR_COLOR_COUNT) throw DecodeException("bad color $color")
-                Payload.Announce(nickname, emoji, color, r.bytes(X25519.PUBLIC_KEY_SIZE))
+                Payload.Announce(nickname, emoji, color, r.bytes(X25519.PUBLIC_KEY_SIZE)).also { r.skipRest() }
             }
             PacketType.PUBLIC -> {
                 val nickname = readNickname(r)
                 val text = r.string16(Murmur.MAX_TEXT_BYTES)
                 if (text.isEmpty()) throw DecodeException("empty text")
+                r.skipRest() // later versions may append fields
                 Payload.Public(nickname, text)
             }
             PacketType.PRIVATE -> {
@@ -275,11 +321,23 @@ object PacketCodec {
                 if (ciphertext.size < MIN_PRIVATE_CIPHERTEXT) throw DecodeException("ciphertext too short")
                 Payload.Private(eph, nonce, ciphertext)
             }
-            PacketType.LEAVE -> Payload.Leave
+            PacketType.LEAVE -> Payload.Leave.also { r.skipRest() }
+            PacketType.ROOM -> {
+                val flags = r.u8()
+                val channel = r.string8(Channels.MAX_LENGTH)
+                if (channel.isNotEmpty() && !Channels.isValid(channel)) throw DecodeException("bad channel")
+                val body = r.rest()
+                val encrypted = flags and ROOM_FLAG_ENCRYPTED != 0
+                if (body.isEmpty() || (encrypted && body.size < MIN_ENCRYPTED_ROOM)) throw DecodeException("bad room body")
+                Payload.Room(channel, encrypted, body)
+            }
+            PacketType.UNKNOWN -> throw DecodeException("unknown type")
         }
         r.expectEnd()
         return payload
     }
+
+    private const val MIN_ENCRYPTED_ROOM = DmCrypto.NONCE_SIZE + DmCrypto.TAG_SIZE + RoomContent.MIN_SIZE
 
     private fun readNickname(r: ByteReader): String {
         val nickname = r.string8(MAX_NICKNAME_BYTES)

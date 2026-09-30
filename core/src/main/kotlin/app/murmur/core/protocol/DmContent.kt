@@ -10,7 +10,21 @@ enum class DmKind(val code: Int) {
     TEXT(1),
     DELIVERED(2),
     READ(3),
-    TYPING(4);
+    TYPING(4),
+
+    // Since 1.1. Older versions ignore these (relays never look inside a DM).
+
+    /** messageId = the reacted-to message; body = emoji, or "" to remove the reaction. */
+    REACTION(5),
+
+    /** Delete for everyone: messageId = the sender's own message. */
+    RETRACT(6),
+
+    /** A nudge: "👋 waved at you". */
+    WAVE(7),
+
+    /** Disappearing messages for this chat: body = seconds as decimal text ("0" = off). */
+    TIMER(8);
 
     companion object {
         fun fromCode(code: Int): DmKind? = entries.firstOrNull { it.code == code }
@@ -48,7 +62,7 @@ class DmContent(
             val id = MessageId.fromBytes(r.bytes(MessageId.SIZE))
             val key = r.bytes(X25519.PUBLIC_KEY_SIZE)
             val body = r.string16(Murmur.MAX_TEXT_BYTES)
-            r.expectEnd()
+            r.skipRest() // later versions may append fields
             if (kind == DmKind.TEXT && body.isEmpty()) throw DecodeException("empty text")
             DmContent(kind, id, key, body)
         } catch (_: DecodeException) {

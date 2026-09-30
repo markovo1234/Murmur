@@ -117,6 +117,11 @@ internal class ByteReader(private val data: ByteArray, private var pos: Int = 0,
         return strictUtf8(bytes(n))
     }
 
+    /** Ignores any remaining bytes (extension fields added by later protocol versions). */
+    fun skipRest() {
+        pos = end
+    }
+
     fun expectEnd() {
         if (remaining != 0) throw DecodeException("$remaining trailing bytes")
     }

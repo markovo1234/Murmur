@@ -67,6 +67,13 @@ class InMemoryNetwork {
         b.channel.trySend(LinkEvent.Up(lb))
     }
 
+    /** Sends raw [bytes] over the a→b link, as if [a]'s transport produced them. */
+    fun inject(a: Endpoint, b: Endpoint, bytes: ByteArray) {
+        val (la, lb) = active[setOf(a.name, b.name)] ?: return
+        val link = if (la.from === a) la else lb
+        link.send(bytes)
+    }
+
     fun disconnect(a: Endpoint, b: Endpoint) {
         val (la, lb) = active.remove(setOf(a.name, b.name)) ?: return
         la.open = false
@@ -130,6 +137,7 @@ class MeshSim(private val test: TestScope) {
 
     fun connect(a: String, b: String) = net.connect(this[a].endpoint, this[b].endpoint)
     fun disconnect(a: String, b: String) = net.disconnect(this[a].endpoint, this[b].endpoint)
+    fun inject(from: String, to: String, bytes: ByteArray) = net.inject(this[from].endpoint, this[to].endpoint, bytes)
 
     /** PRIVATE packets on the wire from [sender] to [recipient], one per packetId. */
     fun privatePackets(sender: PeerId, recipient: PeerId): List<Packet> = net.wire

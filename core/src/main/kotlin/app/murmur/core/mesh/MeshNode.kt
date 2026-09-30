@@ -3,6 +3,7 @@ package app.murmur.core.mesh
 import app.murmur.core.Clock
 import app.murmur.core.Murmur
 import app.murmur.core.RandomSource
+import app.murmur.core.crypto.ChannelCrypto
 import app.murmur.core.crypto.Identity
 import app.murmur.core.protocol.DecodeResult
 import app.murmur.core.protocol.DmContent
@@ -14,6 +15,8 @@ import app.murmur.core.protocol.PacketId
 import app.murmur.core.protocol.Payload
 import app.murmur.core.protocol.PeerId
 import app.murmur.core.protocol.PrivateMessages
+import app.murmur.core.protocol.RoomContent
+import app.murmur.core.protocol.RoomKind
 import app.murmur.core.protocol.VerifyResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -58,6 +61,8 @@ class MeshNode(
     private var relayEnabled = true
     private var background = false
     private var blocked: Set<PeerId> = emptySet()
+    private var channelKeys: Map<String, ByteArray> = emptyMap()
+    private var powerSave = false
 
     private class LinkState(val link: Link) {
         var peerId: PeerId? = null
@@ -204,6 +209,58 @@ class MeshNode(
     /** Blocked peers' packets are still relayed, but never surfaced as messages or typing. */
     suspend fun setBlocked(ids: Set<PeerId>) = onNode { blocked = ids.toSet() }
 
+    /** Keys of the password-protected channels this user joined (name → 32-byte key). */
+    suspend fun setChannelKeys(keys: Map<String, ByteArray>) = onNode { channelKeys = keys.toMap() }
+
+    /** Battery saver: announce every 2 minutes in the background. */
+    suspend fun setPowerSave(on: Boolean) = onNode {
+        if (powerSave != on) {
+            powerSave = on
+            if (jobs.isNotEmpty() && background) restartAnnounceLoop()
+        }
+    }
+
+    /**
+     * Sends a ROOM packet to #nearby ([channel] = "") or a named channel, encrypted when [key] is given.
+     * Returns its packetId, which identifies the message for replies, reactions and retractions.
+     */
+    suspend fun sendRoom(
+        channel: String,
+        kind: RoomKind,
+        body: String,
+        target: PacketId? = null,
+        key: ByteArray? = null,
+        ttl: Int = Murmur.INITIAL_TTL,
+    ): PacketId = onNode {
+        val content = RoomContent(kind, profile.nickname, target, body).encode()
+        val packetId = newPacketId()
+        val timestamp = clock.now()
+        val payloadBody = if (key != null) {
+            ChannelCrypto.seal(key, content, ChannelCrypto.aad(packetId.toBytes(), myId.toBytes(), timestamp, channel), random)
+        } else {
+            content
+        }
+        val packet = PacketCodec.create(
+            identity.signing,
+            Payload.Room(channel, key != null, payloadBody),
+            PeerId.BROADCAST,
+            ttl,
+            packetId,
+            timestamp,
+        )
+        originate(packet)
+        packetId
+    }
+
+    /**
+     * Sends a reaction, retraction, wave or disappearing-messages timer. Not queued and not retried:
+     * returns false if the peer's key is unknown or there are no links.
+     */
+    suspend fun sendDirectControl(to: PeerId, kind: DmKind, messageId: MessageId, body: String = ""): Boolean = onNode {
+        require(kind == DmKind.REACTION || kind == DmKind.RETRACT || kind == DmKind.WAVE || kind == DmKind.TIMER) { "not a control kind" }
+        sendControl(to, kind, messageId, body)
+    }
+
     // ---------------------------------------------------------------- link events
 
     private fun onLinkEvent(event: LinkEvent) {
@@ -313,9 +370,40 @@ class MeshNode(
                 rec.departed = true
                 log("$sender left")
             }
+            is Payload.Room -> deliverRoom(packet, payload, rec)
+            is Payload.Unknown -> Unit // relayed above; nothing to show
         }
         publishPeers()
         if (!rec.departed) flushPending(sender)
+    }
+
+    private fun deliverRoom(packet: Packet, payload: Payload.Room, rec: PeerRecord) {
+        val sender = packet.senderId
+        val plain = if (payload.encrypted) {
+            val key = channelKeys[payload.channel] ?: return // not a member: relayed, not shown
+            ChannelCrypto.open(key, payload.body, ChannelCrypto.aad(packet.packetId.toBytes(), sender.toBytes(), packet.timestamp, payload.channel))
+                ?: return
+        } else {
+            payload.body
+        }
+        val content = RoomContent.decode(plain) ?: return
+        rec.nickname = content.nickname
+        tracer.onDelivered(packet)
+        if (sender in blocked) return
+        emit(
+            MeshEvent.RoomMessage(
+                packetId = packet.packetId,
+                senderId = sender,
+                channel = payload.channel,
+                encrypted = payload.encrypted,
+                kind = content.kind,
+                nickname = content.nickname,
+                target = content.target,
+                body = content.body,
+                timestamp = packet.timestamp,
+                hops = packet.hops,
+            ),
+        )
     }
 
     private fun handlePrivate(packet: Packet, rec: PeerRecord, linkId: String) {
@@ -339,6 +427,9 @@ class MeshNode(
             DmKind.DELIVERED -> onReceipt(sender, content.messageId, DeliveryStatus.DELIVERED)
             DmKind.READ -> onReceipt(sender, content.messageId, DeliveryStatus.READ)
             DmKind.TYPING -> if (sender !in blocked) emit(MeshEvent.Typing(sender))
+            DmKind.REACTION, DmKind.RETRACT, DmKind.WAVE, DmKind.TIMER -> if (sender !in blocked) {
+                emit(MeshEvent.DirectControl(sender, content.kind, content.messageId, content.body, packet.timestamp))
+            }
         }
     }
 
@@ -429,9 +520,9 @@ class MeshNode(
         setStatus(dm, status)
     }
 
-    private fun sendControl(to: PeerId, kind: DmKind, messageId: MessageId): Boolean {
+    private fun sendControl(to: PeerId, kind: DmKind, messageId: MessageId, body: String = ""): Boolean {
         val key = peerRecords[to]?.agreementKey ?: return false
-        val content = DmContent(kind, messageId, identity.agreement.publicKey, "")
+        val content = DmContent(kind, messageId, identity.agreement.publicKey, body)
         val packet = PrivateMessages.create(identity, to, key, content, Murmur.INITIAL_TTL, newPacketId(), clock.now(), random)
             ?: return false
         return originate(packet) > 0
@@ -441,7 +532,11 @@ class MeshNode(
 
     private fun restartAnnounceLoop() {
         announceJob?.cancel()
-        val interval = if (background) config.announceIntervalBackground else config.announceIntervalForeground
+        val interval = when {
+            !background -> config.announceIntervalForeground
+            powerSave -> config.announceIntervalPowerSave
+            else -> config.announceIntervalBackground
+        }
         announceJob = scope.launch {
             while (isActive) {
                 delay(interval)

@@ -7,6 +7,7 @@ import org.bouncycastle.crypto.InvalidCipherTextException
 import org.bouncycastle.crypto.agreement.X25519Agreement
 import org.bouncycastle.crypto.digests.SHA256Digest
 import org.bouncycastle.crypto.generators.HKDFBytesGenerator
+import org.bouncycastle.crypto.generators.PKCS5S2ParametersGenerator
 import org.bouncycastle.crypto.modes.ChaCha20Poly1305
 import org.bouncycastle.crypto.params.AEADParameters
 import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters
@@ -148,9 +149,15 @@ object DmCrypto {
     }
 
     private fun aead(encrypt: Boolean, key: ByteArray, nonce: ByteArray, aad: ByteArray, input: ByteArray): ByteArray? =
+        ChaCha.aead(encrypt, key, nonce, aad, input)
+}
+
+/** ChaCha20-Poly1305 with a 16-byte tag. Returns null on authentication failure; never throws. */
+internal object ChaCha {
+    fun aead(encrypt: Boolean, key: ByteArray, nonce: ByteArray, aad: ByteArray, input: ByteArray): ByteArray? =
         try {
             val cipher = ChaCha20Poly1305()
-            cipher.init(encrypt, AEADParameters(KeyParameter(key), TAG_SIZE * 8, nonce, aad))
+            cipher.init(encrypt, AEADParameters(KeyParameter(key), DmCrypto.TAG_SIZE * 8, nonce, aad))
             val out = ByteArray(cipher.getOutputSize(input.size))
             var n = cipher.processBytes(input, 0, input.size, out, 0)
             n += cipher.doFinal(out, n)
@@ -160,6 +167,62 @@ object DmCrypto {
         } catch (_: RuntimeException) {
             null
         }
+}
+
+/**
+ * Password-protected channels (1.1). Everyone who knows the channel name and password derives the
+ * same key: PBKDF2-HMAC-SHA256(password, salt = "murmur-channel-v1:" + name, 120,000 iterations).
+ * Each message: ChaCha20-Poly1305 with a random 12-byte nonce, AAD = packetId || senderId ||
+ * timestamp || channel name.
+ */
+object ChannelCrypto {
+    const val DEFAULT_ITERATIONS: Int = 120_000
+    const val KEY_SIZE: Int = 32
+
+    fun deriveKey(channel: String, password: String, iterations: Int = DEFAULT_ITERATIONS): ByteArray =
+        Pbkdf2.derive(password.encodeToByteArray(), "murmur-channel-v1:$channel".encodeToByteArray(), iterations, KEY_SIZE)
+
+    fun aad(packetId: ByteArray, senderId: ByteArray, timestamp: Long, channel: String): ByteArray {
+        val ts = ByteArray(8) { i -> (timestamp ushr (56 - 8 * i)).toByte() }
+        return packetId + senderId + ts + channel.encodeToByteArray()
+    }
+
+    /** nonce || ciphertext+tag. */
+    fun seal(key: ByteArray, plaintext: ByteArray, aad: ByteArray, random: RandomSource): ByteArray {
+        val nonce = random.nextBytes(DmCrypto.NONCE_SIZE)
+        val ciphertext = ChaCha.aead(true, key, nonce, aad, plaintext) ?: error("encryption failed")
+        return nonce + ciphertext
+    }
+
+    /** Null if the key, AAD or bytes don't match. Never throws. */
+    fun open(key: ByteArray, sealed: ByteArray, aad: ByteArray): ByteArray? {
+        if (key.size != KEY_SIZE || sealed.size < DmCrypto.NONCE_SIZE + DmCrypto.TAG_SIZE) return null
+        val nonce = sealed.copyOfRange(0, DmCrypto.NONCE_SIZE)
+        return ChaCha.aead(false, key, nonce, aad, sealed.copyOfRange(DmCrypto.NONCE_SIZE, sealed.size))
+    }
+}
+
+/** App-lock PINs are stored only as a salted PBKDF2-HMAC-SHA256 hash. */
+object PinHasher {
+    const val ITERATIONS: Int = 60_000
+    const val SALT_SIZE: Int = 16
+
+    fun newSalt(random: RandomSource): ByteArray = random.nextBytes(SALT_SIZE)
+
+    fun hash(pin: String, salt: ByteArray, iterations: Int = ITERATIONS): ByteArray =
+        Pbkdf2.derive(pin.encodeToByteArray(), salt, iterations, 32)
+
+    fun verify(pin: String, salt: ByteArray, expected: ByteArray, iterations: Int = ITERATIONS): Boolean =
+        org.bouncycastle.util.Arrays.constantTimeAreEqual(hash(pin, salt, iterations), expected)
+}
+
+internal object Pbkdf2 {
+    fun derive(password: ByteArray, salt: ByteArray, iterations: Int, size: Int): ByteArray {
+        require(iterations > 0 && size > 0)
+        val generator = PKCS5S2ParametersGenerator(SHA256Digest())
+        generator.init(password, salt, iterations)
+        return (generator.generateDerivedParameters(size * 8) as KeyParameter).key
+    }
 }
 
 /**
