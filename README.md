@@ -21,7 +21,7 @@ sending your data over the network.
 ## Contents
 
 - [Features](#features)
-- [Install the APK on your phone](#install-the-apk-on-your-phone-from-github-actions)
+- [Install the APK on your phone](#install-the-apk-on-your-phone)
 - [Build it yourself](#build-it-yourself)
 - [Test plan with 2–3 phones](#test-plan-with-23-phones)
 - [How it's built](#how-its-built)
@@ -35,92 +35,41 @@ sending your data over the network.
 - **Radar**: an animated night-sky radar shows people nearby (by signal strength) and people reachable
   through the mesh (with a hop count).
 - **#nearby**: a public room for everyone in range. Messages delete themselves after 24 hours.
+- **Channels**: `#topic` rooms anyone can join by name, optionally protected by a **password**
+  (encrypted). **Invite** people with one tap; channels active nearby show up in the Join dialog.
 - **Direct messages**: end-to-end encrypted. Relays pass them on but can't read them. Ticks show
-  Pending/Sending → Sent → Delivered → Read; failed messages can be retried. Messages to someone who
-  is offline wait on your phone (up to 24 h) and go out when they come back.
-- **Typing indicator**, read receipts (can be turned off), notifications for DMs.
-- **Safety numbers**: compare 24 digits with a friend to make sure nobody is impersonating them, then
-  mark them as verified.
-- **Block** anyone (their messages are still relayed for others, but you never see them).
-- **Panic wipe**: hold for 2 seconds to erase all messages, settings and your identity keys.
-- **Diagnostics** screen with the radio state, links, counters and a copyable log (for when something
-  doesn't work and you can't read logcat).
-- **Demo mode**: five pretend people who move around the radar, chat in #nearby and answer DMs, so you
-  can try the whole app on one phone.
-- Light and dark themes (dark-first), optional dynamic color, TalkBack labels everywhere, and respect
-  for the system "Remove animations" setting.
+  Sent → Delivered → Read; messages to someone offline wait on your phone (up to 24 h).
+- **Voice calls**: end-to-end encrypted, over Bluetooth only, with mute, speaker and a call timer.
+- **Replies, reactions, @mentions, formatting**, delete for everyone, disappearing messages, waves,
+  search and drafts.
+- **SOS alert** in #nearby: everyone in range gets a loud, red alert.
+- **Safety numbers** to check nobody is impersonating a friend; **favorites**, private **nicknames**
+  and a **People** screen.
+- **Privacy**: block anyone, PIN **app lock**, hide message text in notifications, and a **panic
+  wipe** that erases everything including your identity keys.
+- **Diagnostics** screen and a **Demo mode** (five pretend people) to try the app on one phone.
+- Light and dark themes, touch animations, TalkBack labels everywhere, and support for the system
+  "Remove animations" setting.
 
-### New in 1.3: joining private channels
+What changed in each version is on the [Releases](../../releases) page.
 
-- **Invite people**: in a channel, ⋮ → **Invite people…** sends an encrypted invitation to anyone in
-  range. For a password channel the password travels inside it, so they just tap **Join**.
-- **Channels active nearby** appear in the Join dialog; tap one to fill in its name (🔒 ones still
-  need the password or an invite).
-- If you join a channel but see nothing, Murmur now tells you why: someone nearby uses that name
-  with a password (or without one), or your password is different from theirs.
-- ⋮ → **Add a password / Change password…** in any channel, so you can fix a wrong password without
-  leaving.
+## Install the APK on your phone
 
-### New in 1.2: voice calls
-
-- Tap the 📞 button in a direct chat to **call** someone. Calls are end-to-end encrypted and go over
-  Bluetooth only: no internet, no phone number. The other phone rings (with its ringtone, following
-  silent/vibrate mode) and can answer from the app or the notification.
-- Mute, speaker, a call timer and a quality indicator; the call screen can shrink to a pill so you
-  can keep chatting. Calls keep going with the screen off. Missed calls and call durations appear in
-  the chat.
-- Voice is compressed with AMR-NB at 7.95 kbit/s (phone-call quality). Calls work best **directly
-  between two phones in Bluetooth range**; through one or two relaying phones they work but can
-  break up. Expect about half a second of delay.
-- Both phones need Murmur 1.2. Murmur asks for the microphone the first time you call or answer.
-
-### New in 1.1
-
-- **Channels**: join or create `#topic` rooms from the Chats tab. Anyone who types the same name
-  joins the same channel. Add a **password** and the messages are encrypted so only people who know
-  it can read them (relays still carry them).
-- **Replies**: swipe a message right (or long-press → Reply) to quote it; tap a quote to jump to the
-  original.
-- **Reactions**: long-press for 👍 ❤️ 😂 😮 😢 🙏, or double-tap for ❤️. Works in DMs, #nearby and channels.
-- **Delete for everyone** on your own messages, and **Delete for me** on any message.
-- **@mentions** with suggestions while typing; mentions of you are highlighted and always notify.
-- **Formatting**: `*bold*`, `_italic_`, `~strike~` and `` `code` ``.
-- **Disappearing messages** per DM (5 min, 1 h, 1 day, 1 week), set for both people.
-- **Wave 👋** to nudge someone.
-- **SOS alert** in #nearby (hold to send): everyone in range gets a loud, red alert.
-- **Search** inside any chat; **drafts** are kept per chat.
-- **Pin** and **mute** chats, **Mark all read**, message **info** (sent, delivered, read, route).
-- **Favorites** (★) with an alert when a favorite comes into range, and private **nicknames** for
-  people. A **People** screen lists everyone you've met.
-- **App lock** with a PIN (also hides the app from screenshots and the recent-apps preview), and an
-  option to **hide message text in notifications**.
-- **Battery saver** (slower scanning in the background) and **message reach** (7 or 3 hops).
-- A **relay counter** in Settings shows how many messages your phone has carried for others.
-
-1.1 phones and 1.0 phones talk to each other: text, DMs and replies work both ways. Reactions,
-deletions, waves, timers, SOS and channels need 1.1 on both ends; 1.0 phones just don't show them.
-Updating keeps your chats (the database migrates in place).
-
-## Install the APK on your phone (from GitHub Actions)
-
-Every push builds the app on GitHub Actions and attaches the APKs to the run.
-
-1. On your phone, open this repository on **github.com in the browser** and make sure you are signed in
-   (artifacts can only be downloaded when signed in; the GitHub mobile app doesn't show them).
-2. Tap **Actions** → pick the latest **Build** run with a green check for your branch.
-3. Scroll down to **Artifacts** and tap **Murmur-apk**. A zip file downloads.
-4. Open the zip in your Files app and tap **Murmur.apk**. If Android asks, allow your browser or Files
-   app to **install unknown apps**, then tap **Install**.
-5. Open Murmur and follow the three onboarding steps.
+1. On your phone, open the **[Releases](../../releases)** page of this repository.
+2. Under the newest release, tap **`Murmur-vX.Y.Z.apk`** to download it.
+3. Open it. If Android asks, allow your browser or Files app to **install unknown apps**, then tap
+   **Install**.
+4. Open Murmur and follow the three onboarding steps.
 
 Notes:
 
-- Install **Murmur.apk** (release). `Murmur-debug.apk` is the debug build; it works the same but
-  animates noticeably slower.
-- Both are signed with the same key (committed in `keystore/`), so a newer build installs over an older
-  one and keeps your chats. You can also switch between the debug and release builds.
+- `Murmur-vX.Y.Z-debug.apk` is the debug build; it works the same but animates noticeably slower.
+- Every version is signed with the same key (committed in `keystore/`), so a newer version installs
+  over an older one and keeps your chats. Older versions stay available on the Releases page.
 - Some phones (Xiaomi, Huawei, Samsung, OnePlus…) aggressively stop background apps. If Murmur stops
   relaying when the screen is off, set its battery usage to **Unrestricted**.
+- Every push also builds the app on GitHub Actions: signed-in users can download test builds from
+  **Actions** → a green **Build** run → **Artifacts** → **Murmur-apk**.
 
 ## Build it yourself
 
@@ -251,13 +200,21 @@ replies, reactions, waves and a demo channel without other phones.
 
 ## Publishing a release
 
-Releases are cut from a git tag. Tagging a commit builds the signed APK on GitHub Actions
-(`.github/workflows/release.yml`) and attaches it to a GitHub Release:
+Each release is built from a git tag by `.github/workflows/release.yml`, which attaches
+`Murmur-vX.Y.Z.apk` and `Murmur-vX.Y.Z-debug.apk` and uses `.github/release-notes/vX.Y.Z.md` as the
+release notes. To publish a new version:
+
+1. Bump `versionCode` / `versionName` in `app/build.gradle.kts`.
+2. Write `.github/release-notes/vX.Y.Z.md` (and `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt`).
+3. Merge to `main`, then tag it:
 
 ```sh
 git tag v1.3.1
 git push origin v1.3.1
 ```
+
+To (re)build the release for an existing tag, run the **Release** workflow manually from the Actions
+tab and enter the tag.
 
 The same source is suitable for **F-Droid**: it has no proprietary dependencies, no Google Play
 services and no `INTERNET` permission. Listing text lives in `fastlane/metadata/`. F-Droid builds and

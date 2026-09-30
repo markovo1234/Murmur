@@ -1,0 +1,1 @@
+Channel invites, nearby-channel discovery and password hints.
