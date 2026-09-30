@@ -1,1 +1,141 @@
-# Ohh-shitings-bloothuts-shity
+# Murmur
+
+Chat with people nearby. No internet. No accounts. No servers.
+
+Murmur is an Android app where phones talk to each other over **Bluetooth Low Energy** and relay
+messages for each other in a mesh, so a message can reach someone who is out of your own range as long
+as other Murmur phones sit in between. The app **has no internet permission**.
+
+## Features
+
+- **Radar**: an animated night-sky radar shows people nearby (by signal strength) and people reachable
+  through the mesh (with a hop count).
+- **#nearby**: a public room for everyone in range. Messages delete themselves after 24 hours.
+- **Direct messages**: end-to-end encrypted. Relays pass them on but can't read them. Ticks show
+  Pending/Sending → Sent → Delivered → Read; failed messages can be retried. Messages to someone who
+  is offline wait on your phone (up to 24 h) and go out when they come back.
+- **Typing indicator**, read receipts (can be turned off), notifications for DMs.
+- **Safety numbers**: compare 24 digits with a friend to make sure nobody is impersonating them, then
+  mark them as verified.
+- **Block** anyone (their messages are still relayed for others, but you never see them).
+- **Panic wipe**: hold for 2 seconds to erase all messages, settings and your identity keys.
+- **Diagnostics** screen with the radio state, links, counters and a copyable log (for when something
+  doesn't work and you can't read logcat).
+- **Demo mode**: five pretend people who move around the radar, chat in #nearby and answer DMs, so you
+  can try the whole app on one phone.
+- Light and dark themes (dark-first), optional dynamic color, TalkBack labels everywhere, and respect
+  for the system "Remove animations" setting.
+
+## Install the APK on your phone (from GitHub Actions)
+
+Every push builds the app on GitHub Actions and attaches the APKs to the run.
+
+1. On your phone, open this repository on **github.com in the browser** and make sure you are signed in
+   (artifacts can only be downloaded when signed in; the GitHub mobile app doesn't show them).
+2. Tap **Actions** → pick the latest **Build** run with a green check for your branch.
+3. Scroll down to **Artifacts** and tap **Murmur-apk**. A zip file downloads.
+4. Open the zip in your Files app and tap **Murmur.apk**. If Android asks, allow your browser or Files
+   app to **install unknown apps**, then tap **Install**.
+5. Open Murmur and follow the three onboarding steps.
+
+Notes:
+
+- Install **Murmur.apk** (release). `Murmur-debug.apk` is the debug build; it works the same but
+  animates noticeably slower.
+- Both are signed with the same key (committed in `keystore/`), so a newer build installs over an older
+  one and keeps your chats. You can also switch between the debug and release builds.
+- Some phones (Xiaomi, Huawei, Samsung, OnePlus…) aggressively stop background apps. If Murmur stops
+  relaying when the screen is off, set its battery usage to **Unrestricted**.
+
+## Build it yourself
+
+Requirements: JDK 17 or newer and the Android SDK (platform 37 and build-tools; the Android Gradle
+plugin downloads missing pieces if the SDK licenses are accepted).
+
+```sh
+./gradlew :core:test          # protocol, crypto, fragmentation and mesh simulation tests
+./gradlew :app:lintDebug      # Android lint (0 errors)
+./gradlew :app:dist           # → dist/Murmur.apk (release) and dist/Murmur-debug.apk
+```
+
+If the SDK isn't found, create `local.properties` with `sdk.dir=/path/to/Android/sdk` or set
+`ANDROID_HOME`.
+
+## Test plan with 2–3 phones
+
+Install Murmur on every phone, finish onboarding with different nicknames, grant all permissions and
+keep Bluetooth on. Open **Settings → Diagnostics** on any phone to see links, counters and the log; tap
+**Copy** to share the log.
+
+1. **Direct chat (A and B side by side)**
+   - Within about 10–20 s each phone's Radar shows the other on an inner ring and the status pill says
+     "1 nearby".
+   - Send a message in **#nearby** from A: it appears on B.
+   - Open the other person from the Radar → **Message**. Type on A: B sees the typing dots. Send: A's
+     tick goes clock → ✓ → ✓✓; when B opens the chat, A's ticks turn mint (Read).
+   - Open the peer sheet on both phones: the safety numbers must be identical. Mark as verified.
+2. **Three-phone relay (A and C out of each other's range)**
+   - Put B in the middle and A and C far apart (different floors, or ~40–60 m apart outdoors; walls
+     help). In Diagnostics, A must have a link to B but **not** to C.
+   - A's Radar shows C on the dashed outer ring with an amber "2 hops" badge ("via mesh · 2 hops").
+   - A sends a DM to C: it arrives on C, A's ticks reach ✓✓, and B's **Relayed** counter goes up
+     (B cannot read it).
+   - Post in #nearby on C: A receives it with a hop badge.
+3. **DM to an offline phone, delivered later**
+   - On C, tap **Stop** in the "Murmur is active" notification (or turn Bluetooth off).
+   - After ~90 s, A shows C as offline. Send C a DM: it stays on the clock (Pending).
+   - Start C again (open the app / turn Bluetooth on). Within ~30 s the DM arrives and A's ticks turn
+     ✓✓. (Pending messages fail after 24 h; "tap to retry" resends them.)
+4. **Bluetooth off/on recovery**
+   - Turn Bluetooth off on B: the pill says "Bluetooth off" and a banner offers **Turn on**. The other
+     phones mark B offline after ~90 s.
+   - Turn it back on: B reconnects by itself within ~30 s. The Diagnostics log shows "radio down" and
+     "radio up".
+5. **Background notification**
+   - Keep "Keep running in background" on (default). Lock B's screen.
+   - A sends B a DM: B gets a notification; tapping it opens that chat. The persistent notification
+     reads "Murmur is active · N nearby" and has a **Stop** action.
+   - Turn "Keep running in background" off: leaving the app stops the mesh.
+6. **Panic wipe**
+   - On B: Settings → **Hold to wipe everything** for 2 s (releasing early springs back).
+   - B returns to onboarding with no chats. After onboarding again, B appears to the others as a new
+     person, and the safety numbers are different.
+
+Single phone? Turn on **Demo mode** (Settings → Diagnostics) to see the radar, chats, ticks, typing
+and replies without other phones.
+
+## How it's built
+
+- `:core`: pure Kotlin/JVM, no Android APIs. Wire protocol and codec (documented in
+  [PROTOCOL.md](PROTOCOL.md)), crypto on BouncyCastle's lightweight API, fragmentation, and `MeshNode`
+  (routing, dedupe, TTL, relaying, announces, delivery tracking, retries, pending queue). Everything
+  time-based runs on an injected clock and coroutine scope, so tests use virtual time.
+- `:app`: `BleTransport` (GATT server + client, one link per connection, all state on one thread),
+  `MeshService` (foreground service), Room + DataStore, identity keys wrapped by the Android Keystore,
+  and a Jetpack Compose + Material 3 UI with manual dependency injection (`AppContainer`).
+
+## Privacy and security
+
+- Your identity is an Ed25519 signing key and an X25519 key, created on first launch. The private keys
+  are encrypted with an AES-256-GCM key kept in the Android Keystore. Backups are disabled.
+- Every packet is signed; forged or tampered packets are dropped and not relayed.
+- DMs are encrypted per message (ephemeral X25519 → HKDF-SHA256 → ChaCha20-Poly1305).
+- **What others can see**: #nearby messages are public. For DMs, relays can see who is talking to whom,
+  when, and roughly how long the messages are, but not their content. Nicknames and avatars are
+  broadcast in the clear.
+- There is no forward secrecy against theft of the recipient's key: someone who records traffic and
+  later steals a phone's keys could decrypt DMs sent to it. Panic wipe replaces your keys.
+- This code has not been audited.
+
+## Limitations
+
+- Bluetooth LE range is roughly 10–30 m indoors; throughput is low (messages are short text only).
+- Each phone makes at most 6 outgoing connections; very dense crowds aren't tuned.
+- Delivery depends on phones being in the mesh at the time: DMs wait on the sender for up to 24 h, but
+  #nearby messages aren't stored and forwarded later. Read receipts aren't queued.
+- Packets older than 12 h or more than 1 h in the future are dropped, so a badly wrong phone clock
+  breaks messaging.
+- Android may stop background services on some phones despite the foreground service (see battery
+  note above).
+- Not compatible with Bitchat or iOS.
+- Demo mode is a UI preview only; it never touches Bluetooth.
