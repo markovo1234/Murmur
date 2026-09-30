@@ -1,14 +1,34 @@
 # Murmur
 
-Chat and call people nearby. No internet. No accounts. No servers.
+### Chat and call people nearby. No internet. No accounts. No servers.
+
+[![Build](../../actions/workflows/build.yml/badge.svg)](../../actions/workflows/build.yml)
+![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)
+![Platform: Android 8+](https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white)
+![No internet permission](https://img.shields.io/badge/network-none-critical)
 
 Murmur is a free, open-source Android app where phones talk to each other over **Bluetooth Low
 Energy** and relay messages for each other in a mesh, so a message can reach someone who is out of
-your own range as long as other Murmur phones sit in between. The app **has no internet permission**.
+your own range as long as other Murmur phones sit in between. Direct messages and voice calls are
+end-to-end encrypted, and the app **has no internet permission** — it is physically incapable of
+sending your data over the network.
 
 **Get it:** grab the signed `Murmur.apk` from the [Releases](../../releases) page and sideload it, or
-build it yourself (below). Licensed under [Apache-2.0](LICENSE) · [Privacy policy](PRIVACY.md) ·
-[Contributing](CONTRIBUTING.md).
+[build it yourself](#build-it-yourself). &nbsp;·&nbsp; [Apache-2.0](LICENSE) &nbsp;·&nbsp;
+[Privacy policy](PRIVACY.md) &nbsp;·&nbsp; [Wire protocol](PROTOCOL.md) &nbsp;·&nbsp;
+[Contributing](CONTRIBUTING.md)
+
+## Contents
+
+- [Features](#features)
+- [Install the APK on your phone](#install-the-apk-on-your-phone-from-github-actions)
+- [Build it yourself](#build-it-yourself)
+- [Test plan with 2–3 phones](#test-plan-with-23-phones)
+- [How it's built](#how-its-built)
+- [Privacy and security](#privacy-and-security)
+- [Limitations](#limitations)
+- [Publishing a release](#publishing-a-release)
+- [Licence](#licence)
 
 ## Features
 
