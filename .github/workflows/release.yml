@@ -103,8 +103,10 @@ jobs:
         run: ./gradlew --no-daemon :app:dist
 
       - name: Publish release
+        # Uses the RELEASE_TOKEN secret (a PAT with contents:write) when set, so releases
+        # publish even if the default GITHUB_TOKEN is read-only; falls back to it otherwise.
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
         run: |
           set -euo pipefail
           cp dist/Murmur.apk "Murmur-$TAG.apk"
