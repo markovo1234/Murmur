@@ -6,6 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -56,6 +57,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -226,9 +228,14 @@ fun CallScreen(call: CallUi, actions: CallActions, micDenied: Boolean = false) {
             Spacer(Modifier.weight(1f))
 
             when (call.phase) {
-                CallPhase.INCOMING -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    RoundAction(MurmurIcons.CallEnd, "Decline", DECLINE_RED, onClick = actions.onDecline)
-                    RoundAction(Icons.Filled.Call, "Answer", ACCEPT_GREEN, onClick = actions.onAccept)
+                // WhatsApp-style incoming: Decline on the left, Answer on the right, pushed to the
+                // edges, with the Answer button gently bobbing. No quick-reply/message button.
+                CallPhase.INCOMING -> Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    RoundAction(MurmurIcons.CallEnd, "Decline", DECLINE_RED, onClick = actions.onDecline, size = INCOMING_ACTION_SIZE)
+                    RoundAction(Icons.Filled.Call, "Answer", ACCEPT_GREEN, onClick = actions.onAccept, size = INCOMING_ACTION_SIZE, bob = true)
                 }
                 CallPhase.ENDED -> Spacer(Modifier.height(ACTION_SIZE + 28.dp))
                 else -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.Top) {
@@ -344,14 +351,34 @@ private fun Ripples(color: Color) {
 }
 
 @Composable
-private fun RoundAction(icon: ImageVector, label: String, color: Color, onClick: () -> Unit) {
+private fun RoundAction(
+    icon: ImageVector,
+    label: String,
+    color: Color,
+    onClick: () -> Unit,
+    size: Dp = ACTION_SIZE,
+    bob: Boolean = false,
+) {
+    // A gentle up-and-down nudge on the Answer button, like WhatsApp's incoming call.
+    val lift = if (bob && !MurmurTheme.reduceMotion) {
+        val t = rememberInfiniteTransition(label = "bob")
+        t.animateFloat(
+            initialValue = 0f,
+            targetValue = -10f,
+            animationSpec = infiniteRepeatable(tween(700, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+            label = "lift",
+        ).value
+    } else {
+        0f
+    }
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Surface(
             shape = CircleShape,
             color = color,
             contentColor = Color.White,
             modifier = Modifier
-                .size(ACTION_SIZE)
+                .graphicsLayer { translationY = lift }
+                .size(size)
                 .clickable(role = Role.Button, onClickLabel = label, onClick = onClick)
                 .semantics { contentDescription = label },
         ) {
@@ -386,6 +413,7 @@ private fun ToggleAction(icon: ImageVector, label: String, checked: Boolean, ena
 
 private val ACTION_SIZE: Dp = 72.dp
 private val ACTION_SIZE_SMALL: Dp = 64.dp
+private val INCOMING_ACTION_SIZE: Dp = 80.dp
 private val ACCEPT_GREEN = Color(0xFF16A34A)
 private val DECLINE_RED = Color(0xFFDC2626)
 
