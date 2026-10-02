@@ -7,6 +7,11 @@
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
 
+    <!-- The call window wakes the screen: start dark, like the call screen, never with a white flash. -->
+    <style name="Theme.Murmur.Call">
+        <item name="android:windowBackground">@color/night</item>
+    </style>
+
     <style name="Theme.Murmur.Starting" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/night</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>

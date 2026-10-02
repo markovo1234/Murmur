@@ -9,6 +9,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -16,6 +17,7 @@ import androidx.core.content.ContextCompat
 import app.murmur.MainActivity
 import app.murmur.R
 import app.murmur.call.CallActionReceiver
+import app.murmur.call.CallActivity
 import app.murmur.core.protocol.PeerId
 import app.murmur.data.db.NEARBY_CONVERSATION
 
@@ -161,9 +163,11 @@ class Notifier(private val context: Context) {
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setOngoing(true)
             .setTimeoutAfter(CALL_NOTIFICATION_TIMEOUT)
-            .setContentIntent(openApp(null, CALL_ID))
+            // Screen off or locked: wake the phone and ring full-screen over the lock screen.
+            .setFullScreenIntent(callScreen(answer = false), true)
+            .setContentIntent(callScreen(answer = false))
             .addAction(0, context.getString(R.string.call_decline), callAction(CallActionReceiver.ACTION_DECLINE))
-            .addAction(0, context.getString(R.string.call_answer), answerCall())
+            .addAction(0, context.getString(R.string.call_answer), callScreen(answer = true))
             .build()
         post(CALL_ID, n)
     }
@@ -179,7 +183,7 @@ class Notifier(private val context: Context) {
             .setOngoing(true)
             .setSilent(true)
             .setCategory(NotificationCompat.CATEGORY_CALL)
-            .setContentIntent(openApp(null, CALL_ID))
+            .setContentIntent(callScreen(answer = false))
             .addAction(0, context.getString(R.string.call_hang_up), callAction(CallActionReceiver.ACTION_HANG_UP))
             .build()
         post(CALL_ID, n)
@@ -219,13 +223,30 @@ class Notifier(private val context: Context) {
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 
-    /** Opens the app, which asks for the microphone if needed and then picks up. */
-    private fun answerCall(): PendingIntent {
-        val intent = Intent(context, MainActivity::class.java)
+    /**
+     * The call screen over the lock screen ([CallActivity]). With [answer] it picks up too, asking for the
+     * microphone first if needed.
+     */
+    private fun callScreen(answer: Boolean): PendingIntent {
+        val intent = Intent(context, CallActivity::class.java)
             .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            .putExtra(MainActivity.EXTRA_ANSWER_CALL, true)
-        return PendingIntent.getActivity(context, CALL_ID + 1, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            .putExtra(CallActivity.EXTRA_ANSWER, answer)
+        val requestCode = if (answer) CALL_ID + 1 else CALL_ID + 2
+        return PendingIntent.getActivity(context, requestCode, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
+
+    /** Whether calls may take over the screen. Android 14+ lets people switch that off per app. */
+    fun canRingOverLockScreen(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||
+            context.getSystemService(NotificationManager::class.java)?.canUseFullScreenIntent() != false
+
+    /** The system page where calls-over-the-lock-screen is switched back on (Android 14+). */
+    fun lockScreenCallSettings(): Intent =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            Intent(android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.fromParts("package", context.packageName, null))
+        } else {
+            Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+        }
 
     fun cancelConversation(conversationId: String) = manager.cancel(conversationId.hashCode())
 

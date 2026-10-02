@@ -20,11 +20,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -105,11 +102,17 @@ class CallManager(private val c: AppContainer) {
     /** The current call, or null. Stays on ENDED for a moment so the screen can say why. */
     val state: StateFlow<CallUi?> = _state.asStateFlow()
 
-    // replay = 1: the Answer tap usually arrives before the call screen has subscribed (cold start).
-    private val _answerRequests = MutableSharedFlow<String>(replay = 1)
+    private val _minimized = MutableStateFlow(false)
 
-    /** "Answer" was tapped in the notification: the call screen asks for the microphone, then accepts. */
-    val answerRequests: SharedFlow<String> = _answerRequests.asSharedFlow()
+    /**
+     * The call screen is shrunk to the pill. Shared by the app and [CallActivity] (the window over the lock
+     * screen), so minimizing there carries on in the app as a pill. Every new call starts full-screen.
+     */
+    val minimized: StateFlow<Boolean> = _minimized.asStateFlow()
+
+    fun setMinimized(value: Boolean) {
+        _minimized.value = value
+    }
 
     fun hasMicPermission(): Boolean =
         ContextCompat.checkSelfPermission(c.app, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -128,6 +131,7 @@ class CallManager(private val c: AppContainer) {
         clear()
         val s = Session(MessageId.random(random), peer, outgoing = true, key = CallCrypto.newKey(random))
         session = s
+        _minimized.value = false
         publish()
         log("calling ${p.name}")
         sounds.startRingback()
@@ -208,12 +212,6 @@ class CallManager(private val c: AppContainer) {
         publish()
     }
 
-    /** From the notification's Answer action (via MainActivity). */
-    fun requestAnswer() {
-        val s = _state.value ?: return
-        if (s.phase == CallPhase.INCOMING) _answerRequests.tryEmit(s.callId)
-    }
-
     // ================================================================== mesh events
 
     /** Called for every mesh event; ignores everything but call signals and audio. */
@@ -270,6 +268,7 @@ class CallManager(private val c: AppContainer) {
         clear()
         val s = Session(e.messageId, e.senderId, outgoing = false, key = offer.key)
         session = s
+        _minimized.value = false
         publish()
         answer(s, CallSignal.Answer.RINGING)
         sounds.startRinging()
@@ -495,7 +494,8 @@ class CallManager(private val c: AppContainer) {
 
     private fun nameOf(peer: PeerId): String = c.peers.peers.value.firstOrNull { it.id == peer }?.name ?: PeerRepository.fallbackName(peer)
     private fun emojiOf(peer: PeerId): String = c.peers.peers.value.firstOrNull { it.id == peer }?.emoji ?: PeerRepository.DEFAULT_EMOJI
-    private fun hideContent(): Boolean = c.settingsState.value?.let { it.hideNotificationContent || it.appLock.enabled } == true
+    /** Keep names out of call notifications and off the lock screen ("Hide message text", or app lock on). */
+    fun hideContent(): Boolean = c.settingsState.value?.let { it.hideNotificationContent || it.appLock.enabled } == true
     private fun node(): MeshNode? = c.mesh.runtime.value?.node
     private fun log(message: String) = c.log.log("CALL", message)
 

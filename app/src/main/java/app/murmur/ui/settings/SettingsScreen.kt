@@ -17,6 +17,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.filled.Lock
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.text.input.ImeAction
@@ -65,6 +68,7 @@ import app.murmur.data.ThemeMode
 import app.murmur.ui.components.EmojiAvatar
 import app.murmur.ui.components.HoldToConfirmButton
 import app.murmur.ui.components.MurmurIcons
+import app.murmur.ui.container
 import app.murmur.ui.containerViewModel
 import app.murmur.ui.theme.Dimens
 import app.murmur.ui.theme.MurmurTheme
@@ -92,6 +96,8 @@ data class SettingsUiState(
     val publicReach: Int = Settings.REACH_NORMAL,
     val favoriteAlerts: Boolean = true,
     val relayedTotal: Long = 0,
+    /** Calls may wake the phone and ring over the lock screen (Android 14+ can switch that off). */
+    val callsOnLockScreen: Boolean = true,
     val version: String = BuildConfig.VERSION_NAME,
     val protocolVersion: Int = Murmur.PROTOCOL_VERSION,
 )
@@ -157,6 +163,7 @@ class SettingsActions(
     val onReadReceiptsChange: (Boolean) -> Unit = {},
     val onNearbyNotificationsChange: (Boolean) -> Unit = {},
     val onHideContentChange: (Boolean) -> Unit = {},
+    val onAllowLockScreenCalls: () -> Unit = {},
     val onBatterySaverChange: (Boolean) -> Unit = {},
     val onReachChange: (Int) -> Unit = {},
     val onFavoriteAlertsChange: (Boolean) -> Unit = {},
@@ -173,8 +180,16 @@ class SettingsActions(
 fun SettingsRoute(contentPadding: PaddingValues, onEditProfile: () -> Unit, onBlocked: () -> Unit, onDiagnostics: () -> Unit) {
     val vm = containerViewModel { SettingsViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val notifier = context.container.notifier
+    // A system setting: check again whenever you come back from it.
+    var callsOnLockScreen by remember { mutableStateOf(notifier.canRingOverLockScreen()) }
+    LifecycleResumeEffect(notifier) {
+        callsOnLockScreen = notifier.canRingOverLockScreen()
+        onPauseOrDispose {}
+    }
     SettingsScreen(
-        state = state,
+        state = state.copy(callsOnLockScreen = callsOnLockScreen),
         contentPadding = contentPadding,
         actions = SettingsActions(
             onEditProfile = onEditProfile,
@@ -185,6 +200,9 @@ fun SettingsRoute(contentPadding: PaddingValues, onEditProfile: () -> Unit, onBl
             onReadReceiptsChange = vm::setReadReceipts,
             onNearbyNotificationsChange = vm::setNearbyNotifications,
             onHideContentChange = vm::setHideContent,
+            onAllowLockScreenCalls = {
+                runCatching { context.startActivity(notifier.lockScreenCallSettings()) }
+            },
             onBatterySaverChange = vm::setBatterySaver,
             onReachChange = vm::setReach,
             onFavoriteAlertsChange = vm::setFavoriteAlerts,
@@ -298,6 +316,9 @@ fun SettingsScreen(state: SettingsUiState, contentPadding: PaddingValues, action
                     enabled = !state.lockEnabled,
                     onChange = actions.onHideContentChange,
                 )
+                if (!state.callsOnLockScreen) {
+                    NavRow(Icons.Filled.Call, "Calls on the lock screen", "Off: calls won't wake the screen. Tap to allow.", actions.onAllowLockScreenCalls)
+                }
             }
         }
         item(key = "security") {

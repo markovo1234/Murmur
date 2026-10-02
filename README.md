@@ -40,6 +40,7 @@ sending your data over the network.
 - **Direct messages**: end-to-end encrypted. Relays pass them on but can't read them. Ticks show
   Sent → Delivered → Read; messages to someone offline wait on your phone (up to 24 h).
 - **Voice calls**: end-to-end encrypted, over Bluetooth only, with mute, speaker and a call timer.
+  Incoming calls wake the phone and ring over the lock screen, like a normal phone call.
 - **Replies, reactions, @mentions, formatting**, delete for everyone, disappearing messages, waves,
   search and drafts.
 - **SOS alert** in #nearby: everyone in range gets a loud, red alert.
@@ -143,6 +144,9 @@ keep Bluetooth on. Open **Settings → Diagnostics** on any phone to see links, 
    - Try Mute and Speaker; minimize the call and send a message; turn A's screen off and keep talking.
    - Hang up on either phone: both show "Call ended" and the chat gets "📞 Outgoing/Incoming call · m:ss".
    - Call again and don't answer: after ~35 s A shows "No answer" and B gets a missed-call notification.
+   - Lock B and turn its screen off, then call it: B's screen wakes up showing Answer / Decline over the
+     lock screen. Answer without unlocking; the minimize arrow asks to unlock, then opens Murmur with the call
+     as a pill.
    - Optional: repeat with a third phone relaying (A and C out of range): the route reads "Through the
      mesh · 2 hops"; the Diagnostics log on B shows the relaying.
 9. **Private channels (two phones with 1.3)**
