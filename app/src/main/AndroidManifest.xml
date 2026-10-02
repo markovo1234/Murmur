@@ -35,6 +35,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Incoming calls wake the phone and ring over the lock screen (1.3.2). -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <!-- Not required so the app still installs (and Demo mode works) on devices without BLE. -->
     <uses-feature
@@ -80,5 +82,15 @@
         <receiver
             android:name=".call.CallActionReceiver"
             android:exported="false" />
+
+        <!-- The call screen over the lock screen. Its own task, so closing it returns you to whatever was
+             there before (the lock screen, another app) rather than pulling up Murmur. -->
+        <activity
+            android:name=".call.CallActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:taskAffinity="app.murmur.call"
+            android:theme="@style/Theme.Murmur.Call" />
     </application>
 </manifest>

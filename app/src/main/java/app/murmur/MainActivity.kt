@@ -77,14 +77,9 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIntent(intent: Intent?) {
         intent?.getStringExtra(EXTRA_CONVERSATION)?.let { pendingConversation.value = it }
-        if (intent?.getBooleanExtra(EXTRA_ANSWER_CALL, false) == true) {
-            intent.removeExtra(EXTRA_ANSWER_CALL)
-            (application as MurmurApp).container.calls.requestAnswer()
-        }
     }
 
     companion object {
         const val EXTRA_CONVERSATION = "app.murmur.extra.CONVERSATION"
-        const val EXTRA_ANSWER_CALL = "app.murmur.extra.ANSWER_CALL"
     }
 }

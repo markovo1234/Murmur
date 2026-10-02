@@ -1,6 +1,11 @@
 package app.murmur.ui.call
 
 import android.Manifest
+import android.app.KeyguardManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -45,6 +50,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -72,6 +78,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.murmur.call.CallManager
 import app.murmur.call.CallPhase
@@ -83,6 +90,7 @@ import app.murmur.ui.components.PreviewData
 import app.murmur.ui.container
 import app.murmur.ui.theme.MurmurTheme
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /** Everything the call screen can do. */
 class CallActions(
@@ -108,26 +116,11 @@ fun CallOverlay(onCoveringChange: (Boolean) -> Unit = {}) {
         LaunchedEffect(Unit) { onCoveringChange(false) }
         return
     }
-    var minimized by rememberSaveable(current.callId) { mutableStateOf(false) }
+    val minimized by c.calls.minimized.collectAsStateWithLifecycle()
     LaunchedEffect(minimized) { onCoveringChange(!minimized) }
     var micDenied by rememberSaveable(current.callId) { mutableStateOf(false) }
-
-    val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) c.calls.accept() else micDenied = true
-    }
-    val accept: () -> Unit = {
-        if (c.calls.hasMicPermission()) c.calls.accept() else micLauncher.launch(Manifest.permission.RECORD_AUDIO)
-    }
-    // "Answer" in the notification.
-    LaunchedEffect(current.callId) {
-        c.calls.answerRequests.collect { id ->
-            if (id == current.callId) {
-                minimized = false
-                accept()
-            }
-        }
-    }
-    BackHandler(enabled = !minimized && current.phase != CallPhase.ENDED) { minimized = true }
+    val accept = rememberAccept(onDenied = { micDenied = true })
+    BackHandler(enabled = !minimized && current.phase != CallPhase.ENDED) { c.calls.setMinimized(true) }
 
     val actions = CallActions(
         onAccept = accept,
@@ -135,8 +128,8 @@ fun CallOverlay(onCoveringChange: (Boolean) -> Unit = {}) {
         onHangUp = { c.calls.hangup() },
         onToggleMute = { c.calls.toggleMute() },
         onToggleSpeaker = { c.calls.toggleSpeaker() },
-        onMinimize = { minimized = true },
-        onExpand = { minimized = false },
+        onMinimize = { c.calls.setMinimized(true) },
+        onExpand = { c.calls.setMinimized(false) },
     )
     AnimatedContent(
         targetState = minimized,
@@ -151,6 +144,78 @@ fun CallOverlay(onCoveringChange: (Boolean) -> Unit = {}) {
             CallScreen(current, actions, micDenied = micDenied)
         }
     }
+}
+
+/**
+ * The call in [app.murmur.call.CallActivity], its own window over the lock screen. The same screen as in
+ * the app, minus the pill: the minimize arrow hands the call over to the app instead.
+ */
+@Composable
+fun LockScreenCall(answerTapped: MutableStateFlow<Boolean>, hideCaller: Boolean, onOpenApp: () -> Unit, onDone: () -> Unit) {
+    val c = LocalContext.current.container
+    val call by c.calls.state.collectAsStateWithLifecycle()
+    val current = call
+    if (current == null) {
+        LaunchedEffect(Unit) { onDone() }
+        return
+    }
+    var micDenied by rememberSaveable(current.callId) { mutableStateOf(false) }
+    val accept = rememberAccept(onDenied = { micDenied = true })
+    // "Answer" in the notification.
+    val tapped by answerTapped.collectAsStateWithLifecycle()
+    LaunchedEffect(tapped, current.callId) {
+        if (!tapped) return@LaunchedEffect
+        answerTapped.value = false
+        if (current.phase == CallPhase.INCOMING) accept()
+    }
+    // With "Hide message text" (or app lock) on, the lock screen doesn't say who's calling.
+    val locked = rememberKeyguardLocked()
+    val shown = if (hideCaller && locked) current.copy(name = "Murmur call", emoji = "📞", colorIndex = 0) else current
+    CallScreen(
+        shown,
+        CallActions(
+            onAccept = accept,
+            onDecline = { c.calls.decline() },
+            onHangUp = { c.calls.hangup() },
+            onToggleMute = { c.calls.toggleMute() },
+            onToggleSpeaker = { c.calls.toggleSpeaker() },
+            onMinimize = onOpenApp,
+        ),
+        micDenied = micDenied,
+    )
+}
+
+/** Picks up, asking for the microphone first if Murmur doesn't have it yet. */
+@Composable
+private fun rememberAccept(onDenied: () -> Unit): () -> Unit {
+    val c = LocalContext.current.container
+    val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) c.calls.accept() else onDenied()
+    }
+    return { if (c.calls.hasMicPermission()) c.calls.accept() else micLauncher.launch(Manifest.permission.RECORD_AUDIO) }
+}
+
+/** Whether the phone is locked. Unlocking under a window sends it no event, so this listens for the screen. */
+@Composable
+private fun rememberKeyguardLocked(): Boolean {
+    val context = LocalContext.current
+    val keyguard = remember(context) { context.getSystemService(KeyguardManager::class.java) }
+    var locked by remember { mutableStateOf(keyguard?.isKeyguardLocked == true) }
+    DisposableEffect(context) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                locked = keyguard?.isKeyguardLocked == true
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_USER_PRESENT)
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+        }
+        ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        onDispose { context.unregisterReceiver(receiver) }
+    }
+    return locked
 }
 
 @Composable
