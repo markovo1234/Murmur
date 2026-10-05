@@ -1,0 +1,329 @@
+{
+  "identities": [
+    {
+      "signingSeed": "efb75e9ec5c2a532bbc865d964adcf2d929a56ca6d1de532ea369487b992389c",
+      "agreementPrivate": "d57a77d735b22d010fbaf625ff897acd6e1d02d8d5c321fa14a6b29515977555",
+      "signingPublic": "a3ad1329c55c2171ae5554d12c5d20b01ad4d0f1b84739f15df951730b4eb3cb",
+      "agreementPublic": "54385b2a5ae1e7e31119e28447c4e3e94c871ffd9c4b69c69a5e53e2d0d71c75",
+      "peerId": "8e3dfe0d479e9fab"
+    },
+    {
+      "signingSeed": "1da1ae2ae0200d699aa33db71ac0024f13ed0e8a5cfc2b00f8de8c471eaaf8bc",
+      "agreementPrivate": "92213f0e953b2e2582a359031ccd904cd0ee995b2e4d41ac0de7fdbf28735726",
+      "signingPublic": "9d1f2103d51b348208c5ab936899e2e9f0bf70344a5f0ec5293690d62712ae05",
+      "agreementPublic": "f0afb82db15c09f870ae9b5786861d8f71f4cdda8ad03d91d817d6fb190dc708",
+      "peerId": "f0eb636876160419"
+    }
+  ],
+  "sha256": [
+    {
+      "input": "",
+      "output": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "input": "616263",
+      "output": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    },
+    {
+      "input": "6d75726d757220f09f8c99",
+      "output": "13429ffe8093b1c2db94ac1f47e3b3ead4de75752e8611df0bd51b349f677ec6"
+    }
+  ],
+  "x25519Shared": "38d0f6ef68c8a3b25ee55f089760d33c179636b801305bf46599ff7fa81fd526",
+  "dmSeal": {
+    "random": "5499a78906fc07c2d24d098b38f519cb5cdcd01680864d375bccbc4041663be2323dd742b7ec079a48e9385f",
+    "plaintext": "0121f6209478ddf72db2898f40e4f6bfe654385b2a5ae1e7e31119e28447c4e3e94c871ffd9c4b69c69a5e53e2d0d71c7500097073737420f09fa4ab",
+    "recipientAgreementPublic": "f0afb82db15c09f870ae9b5786861d8f71f4cdda8ad03d91d817d6fb190dc708",
+    "aad": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2021222324252627",
+    "ephemeralKey": "d1bd59d79f881b557fefa9714a7234bec834413de04d1a896bf9f63caecb7932",
+    "nonce": "323dd742b7ec079a48e9385f",
+    "ciphertext": "ed2f8880071005f96f5a9b00daff8953a2d9d832f1be043d75b0f5fdfa31734f95a5699f7e2be6d0eb7178cfef9e5e3717ea33a23342408f83a79c4008695bf57e7823827b9da963f4b978b2"
+  },
+  "channelKey": {
+    "channel": "night-owls",
+    "password": "hunter2",
+    "iterations": 120000,
+    "key": "281d4c6d134604538e35bf78a96e6cd5fc747c467fe6ea7bcb91e531ae93d03d"
+  },
+  "channelSeal": {
+    "key": "281d4c6d134604538e35bf78a96e6cd5fc747c467fe6ea7bcb91e531ae93d03d",
+    "random": "7911f46064dd0622a7cff023",
+    "aad": "89d1fe1cfaa51fe2faa127096e8c84f78e3dfe0d479e9fab000001a0c4506c006e696768742d6f776c73",
+    "plaintext": "0105416c6963650000000000000000000000000000000000096f776c73206f6e6c79",
+    "sealed": "7911f46064dd0622a7cff023207a367da05ceb293ff025987dff19130681fec1764413447965cbe58b221da2923c69335ec71c227911e960a99ab2a73f7c"
+  },
+  "callSeal": [
+    {
+      "key": "74a245010b5a95e255196bdb041d7e2f22aa68e2c37639a3c597698b4fa00701",
+      "fromCaller": true,
+      "seq": 7,
+      "aad": "df515d82df7317c5ea61e276134d7f9b8e3dfe0d479e9fabf0eb63687616041900000007",
+      "plaintext": "617564696f",
+      "sealed": "46e779263c7a615d6c242a1aff22d4f10b012797f8"
+    },
+    {
+      "key": "74a245010b5a95e255196bdb041d7e2f22aa68e2c37639a3c597698b4fa00701",
+      "fromCaller": false,
+      "seq": 7,
+      "aad": "df515d82df7317c5ea61e276134d7f9bf0eb6368761604198e3dfe0d479e9fab00000007",
+      "plaintext": "617564696f",
+      "sealed": "4a7af53b5503a8f3977aaf85c307b19a311cdbc065"
+    }
+  ],
+  "callOffer": {
+    "key": "74a245010b5a95e255196bdb041d7e2f22aa68e2c37639a3c597698b4fa00701",
+    "body": "1 amrnb 74a245010b5a95e255196bdb041d7e2f22aa68e2c37639a3c597698b4fa00701"
+  },
+  "packets": [
+    {
+      "name": "announce",
+      "hex": "01010774e9407ecd263fbc969dd231bc7355b68e3dfe0d479e9fabffffffffffffffff000001a0c4506c00a3ad1329c55c2171ae5554d12c5d20b01ad4d0f1b84739f15df951730b4eb3cb002c05416c69636504f09f8c990354385b2a5ae1e7e31119e28447c4e3e94c871ffd9c4b69c69a5e53e2d0d71c757ce58ae312ad71575f466c6b9a08b26030bce0c92a809d0bce633dbb276966a3aaef5a3660877884278a8c8a640f51a1b21bda65648fca01827969263300c403",
+      "unsigned": "01010774e9407ecd263fbc969dd231bc7355b68e3dfe0d479e9fabffffffffffffffff000001a0c4506c00a3ad1329c55c2171ae5554d12c5d20b01ad4d0f1b84739f15df951730b4eb3cb002c05416c69636504f09f8c990354385b2a5ae1e7e31119e28447c4e3e94c871ffd9c4b69c69a5e53e2d0d71c75",
+      "type": 1,
+      "ttl": 7,
+      "packetId": "74e9407ecd263fbc969dd231bc7355b6",
+      "senderId": "8e3dfe0d479e9fab",
+      "recipientId": "ffffffffffffffff",
+      "timestamp": 1790000000000,
+      "nickname": "Alice",
+      "emoji": "🌙",
+      "colorIndex": 3
+    },
+    {
+      "name": "public",
+      "hex": "01020516ac9709dc49ad29dd10b8996d264d558e3dfe0d479e9fabffffffffffffffff000001a0c4506c01a3ad1329c55c2171ae5554d12c5d20b01ad4d0f1b84739f15df951730b4eb3cb001705416c696365000f68656c6c6f2040426f6220f09f918b1a7e64ad1f543a6838cf322e7667a19c19502867b28e38400efe0dc45c168e4c1bea65b27f5439a57650001db298c86c130c46a6c8a06f61983bdd07695e430c",
+      "unsigned": "01020516ac9709dc49ad29dd10b8996d264d558e3dfe0d479e9fabffffffffffffffff000001a0c4506c01a3ad1329c55c2171ae5554d12c5d20b01ad4d0f1b84739f15df951730b4eb3cb001705416c696365000f68656c6c6f2040426f6220f09f918b",
+      "type": 2,
+      "ttl": 5,
+      "packetId": "16ac9709dc49ad29dd10b8996d264d55",
+      "senderId": "8e3dfe0d479e9fab",
+      "recipientId": "ffffffffffffffff",
+      "timestamp": 1790000000001,
+      "nickname": "Alice",
+      "text": "hello @Bob 👋"
+    },
+    {
+      "name": "leave",
+      "hex": "010407a226c231361fd94cfabb36401197718f8e3dfe0d479e9fabffffffffffffffff000001a0c4506c02a3ad1329c55c2171ae5554d12c5d20b01ad4d0f1b84739f15df951730b4eb3cb000017af6ea73ff5db344712a6e4b0aa3f7c5891fc11956f756c0182d4b22ef8453b776932669a760876d37f3b69fdc117529e4a0f5a85062172c440465aa6a97c0e",
+      "unsigned": "010407a226c231361fd94cfabb36401197718f8e3dfe0d479e9fabffffffffffffffff000001a0c4506c02a3ad1329c55c2171ae5554d12c5d20b01ad4d0f1b84739f15df951730b4eb3cb0000",
+      "type": 4,
+      "ttl": 7,
+      "packetId": "a226c231361fd94cfabb36401197718f",
+      "senderId": "8e3dfe0d479e9fab",
+      "recipientId": "ffffffffffffffff",
+      "timestamp": 1790000000002
+    },
+    {
+      "name": "roomReaction",
+      "hex": "010507af9a079915f578267974a66103fe004c8e3dfe0d479e9fabffffffffffffffff000001a0c4506c03a3ad1329c55c2171ae5554d12c5d20b01ad4d0f1b84739f15df951730b4eb3cb002100000205416c696365293e6c190ecf848b72ad6363b0c2ba4a0006e29da4efb88f051e4720f3dbf41faae7a5c01a844cc399f85edc6d3cf1ed2700a721ca5cebf70910a6dcc226b1c3c6802884b1610532c08bfc5d856f9d98c46024ede9e0bd0b",
+      "unsigned": "010507af9a079915f578267974a66103fe004c8e3dfe0d479e9fabffffffffffffffff000001a0c4506c03a3ad1329c55c2171ae5554d12c5d20b01ad4d0f1b84739f15df951730b4eb3cb002100000205416c696365293e6c190ecf848b72ad6363b0c2ba4a0006e29da4efb88f",
+      "type": 5,
+      "ttl": 7,
+      "packetId": "af9a079915f578267974a66103fe004c",
+      "senderId": "8e3dfe0d479e9fab",
+      "recipientId": "ffffffffffffffff",
+      "timestamp": 1790000000003,
+      "channel": "",
+      "kind": 2,
+      "target": "293e6c190ecf848b72ad6363b0c2ba4a",
+      "body": "❤️"
+    },
+    {
+      "name": "roomEncrypted",
+      "hex": "010507307a3bca3111670f95d5543a4937c49c8e3dfe0d479e9fabffffffffffffffff000001a0c4506c04a3ad1329c55c2171ae5554d12c5d20b01ad4d0f1b84739f15df951730b4eb3cb004a010a6e696768742d6f776c73e32f50ea70cfb52f81a54228a9a435a24e94d1ea1f568f58ede04d02dfc04b15928121d5ff1760e5ab3e21ade7ccff6372c0087fe8dc03077be9d329b788a02df61c0664f9789a5e8496fc1b867c64150a867f29a6ae21c8b3bf524247e73b932d6c6b9f260ba82f35298cbce8ec1e612ea1ac386118f888cc09b312ac04",
+      "unsigned": "010507307a3bca3111670f95d5543a4937c49c8e3dfe0d479e9fabffffffffffffffff000001a0c4506c04a3ad1329c55c2171ae5554d12c5d20b01ad4d0f1b84739f15df951730b4eb3cb004a010a6e696768742d6f776c73e32f50ea70cfb52f81a54228a9a435a24e94d1ea1f568f58ede04d02dfc04b15928121d5ff1760e5ab3e21ade7ccff6372c0087fe8dc03077be9d329b788",
+      "type": 5,
+      "ttl": 7,
+      "packetId": "307a3bca3111670f95d5543a4937c49c",
+      "senderId": "8e3dfe0d479e9fab",
+      "recipientId": "ffffffffffffffff",
+      "timestamp": 1790000000004,
+      "channel": "night-owls",
+      "kind": 1,
+      "body": "owls only"
+    },
+    {
+      "name": "private",
+      "hex": "010307febbba8a48e66140c631e902e0c2ed218e3dfe0d479e9fabf0eb636876160419000001a0c4506c05a3ad1329c55c2171ae5554d12c5d20b01ad4d0f1b84739f15df951730b4eb3cb007844b13f9ed146fb5671c7bf644c3e9c8e904890dcce1bc9b8f8c64b790c55be69cae0d1c280d00eeccae369ce754e77b16dd213d56aa59bb51a5fed1add7a0eb4462543c95636089548b0f4e5b1ab74aa764a1e8f609038233d18ad5a9b181c60ccb57abd425346da71453f5209d53cd83be33bd6a616a5af90074db222fa8cd98750cbe3d7c8a289637532cbb77b688859526d816d146bf780affdbb0ebfe6aa6c66ebaaa9c6786f355cf112d468c5758be8c8abe0fe9b03",
+      "unsigned": "010307febbba8a48e66140c631e902e0c2ed218e3dfe0d479e9fabf0eb636876160419000001a0c4506c05a3ad1329c55c2171ae5554d12c5d20b01ad4d0f1b84739f15df951730b4eb3cb007844b13f9ed146fb5671c7bf644c3e9c8e904890dcce1bc9b8f8c64b790c55be69cae0d1c280d00eeccae369ce754e77b16dd213d56aa59bb51a5fed1add7a0eb4462543c95636089548b0f4e5b1ab74aa764a1e8f609038233d18ad5a9b181c60ccb57abd425346da71453f5209d53cd83be33bd6a616a5af",
+      "type": 3,
+      "ttl": 7,
+      "packetId": "febbba8a48e66140c631e902e0c2ed21",
+      "senderId": "8e3dfe0d479e9fab",
+      "recipientId": "f0eb636876160419",
+      "timestamp": 1790000000005,
+      "messageId": "5b01451bc1d33cc33a5bb5b453eeb9e2",
+      "dmKind": 1,
+      "body": "psst 🤫"
+    },
+    {
+      "name": "call",
+      "hex": "0106038e7cd49d6a976451a7ee4acc95d9332f8e3dfe0d479e9fabf0eb636876160419000001a0c4506c06a3ad1329c55c2171ae5554d12c5d20b01ad4d0f1b84739f15df951730b4eb3cb003cdf515d82df7317c5ea61e276134d7f9b0000002a000306090c0f1215181b1e2124272a2d303336393c3f4245484b4e5154575a5d606366696c6f727549fb86b4a0b2900d1ede39a9947de153054925a41d8d3376bdd1a65da550cb0d32fb3f67fb34b773d5d3873ce519ce3b5bf296720ed055b66b5d3cbc6a7cb206",
+      "unsigned": "0106038e7cd49d6a976451a7ee4acc95d9332f8e3dfe0d479e9fabf0eb636876160419000001a0c4506c06a3ad1329c55c2171ae5554d12c5d20b01ad4d0f1b84739f15df951730b4eb3cb003cdf515d82df7317c5ea61e276134d7f9b0000002a000306090c0f1215181b1e2124272a2d303336393c3f4245484b4e5154575a5d606366696c6f7275",
+      "type": 6,
+      "ttl": 3,
+      "packetId": "8e7cd49d6a976451a7ee4acc95d9332f",
+      "senderId": "8e3dfe0d479e9fab",
+      "recipientId": "f0eb636876160419",
+      "timestamp": 1790000000006,
+      "callId": "df515d82df7317c5ea61e276134d7f9b",
+      "seq": 42
+    },
+    {
+      "name": "unknownType",
+      "hex": "010907dbbf6113587a4e59f2428fe7b98027318e3dfe0d479e9fabffffffffffffffff000001a0c4506c07a3ad1329c55c2171ae5554d12c5d20b01ad4d0f1b84739f15df951730b4eb3cb0003010203d822aa8f234da9d3f86fa926d0e14d25403d47449572030a5157d60dbd4fca0675a6cdc48f7323e6dfe655c69aa96b41cd363eae6a49a3d291b3c2c3175d370f",
+      "unsigned": "010907dbbf6113587a4e59f2428fe7b98027318e3dfe0d479e9fabffffffffffffffff000001a0c4506c07a3ad1329c55c2171ae5554d12c5d20b01ad4d0f1b84739f15df951730b4eb3cb0003010203",
+      "type": 9,
+      "ttl": 7,
+      "packetId": "dbbf6113587a4e59f2428fe7b9802731",
+      "senderId": "8e3dfe0d479e9fab",
+      "recipientId": "ffffffffffffffff",
+      "timestamp": 1790000000007
+    }
+  ],
+  "dmContent": [
+    {
+      "kind": 1,
+      "messageId": "5bb41639cdc315be0c168dcecd72f8ae",
+      "key": "54385b2a5ae1e7e31119e28447c4e3e94c871ffd9c4b69c69a5e53e2d0d71c75",
+      "body": "hi",
+      "hex": "015bb41639cdc315be0c168dcecd72f8ae54385b2a5ae1e7e31119e28447c4e3e94c871ffd9c4b69c69a5e53e2d0d71c7500026869"
+    },
+    {
+      "kind": 12,
+      "messageId": "8b4e2acc3bd88f737d1ae1f561d7f061",
+      "key": "54385b2a5ae1e7e31119e28447c4e3e94c871ffd9c4b69c69a5e53e2d0d71c75",
+      "body": "1 night-owls 281d4c6d134604538e35bf78a96e6cd5fc747c467fe6ea7bcb91e531ae93d03d",
+      "hex": "0c8b4e2acc3bd88f737d1ae1f561d7f06154385b2a5ae1e7e31119e28447c4e3e94c871ffd9c4b69c69a5e53e2d0d71c75004d31206e696768742d6f776c732032383164346336643133343630343533386533356266373861393665366364356663373437633436376665366561376263623931653533316165393364303364"
+    },
+    {
+      "kind": 3,
+      "messageId": "64b29c98a228168276425f817880f99b",
+      "key": "f0afb82db15c09f870ae9b5786861d8f71f4cdda8ad03d91d817d6fb190dc708",
+      "body": "",
+      "hex": "0364b29c98a228168276425f817880f99bf0afb82db15c09f870ae9b5786861d8f71f4cdda8ad03d91d817d6fb190dc7080000"
+    }
+  ],
+  "roomContent": [
+    {
+      "kind": 1,
+      "nickname": "Bob",
+      "target": null,
+      "body": "> Alice: hello\nhi!",
+      "hex": "0103426f620000000000000000000000000000000000123e20416c6963653a2068656c6c6f0a686921"
+    },
+    {
+      "kind": 2,
+      "nickname": "Bob",
+      "target": "293e6c190ecf848b72ad6363b0c2ba4a",
+      "body": "👍",
+      "hex": "0203426f62293e6c190ecf848b72ad6363b0c2ba4a0004f09f918d"
+    },
+    {
+      "kind": 4,
+      "nickname": "Bob",
+      "target": null,
+      "body": "",
+      "hex": "0403426f62000000000000000000000000000000000000"
+    }
+  ],
+  "fragments": {
+    "data": "bb882bcb216676e0cdad1fc237daa274eac66b37cfda79b945f45d26d9a1a0f6b0ccc51ccbfb481413508c63e597d5eb55fc7ae99188ad5d9d6c1009a3a12b8e1131aa238fcb867d84dd37f5cb0d4826aeb7ba5ff7cfe84ce4814e2280f0f2f56cadeb47d6a098cfda57a13f7cca035e24e93f9c65e524444684dc9d8bef141eafd2dc8a9f6efb41d192db373d6062aa88cc7441138ad1d93132ef6cd60a50a9af13bc76fb2dbe3babf00b3889a75eb1d03971618c52c254d9bc89f4e5a315c9a49d70ff8f0c6d44ad2e54bd8fd1db179785dc34303d0e70b5dce71231cc1fc0abc0d98f15ebc35ca0417927b24acc4b9bf1faeab298dbb900f6652ba7cf132b43e872addb2bc2125142d96e086d62f63eadc8969a3a5240394d99a4268ffbd5d1234e5242d1f9bd116a8205dc02b53f07664417c3052eada34b8a4805ab9f341c3fa75b40ec3352351f7d202d9981101e684bbbdec0abc5c6d342438a7d0c8bd16a9131df5ac41f97119b762ca2f6a9d34ea94bee3cca81eca5221073e5cb720075811abbd626aa13675d1ac267af3e17453d18cacb1993a5d4ab8271e09db09d91b6838853bf760bf8c37408ce4bb301d6569f9f0694404349b93ba9f5b93d00b3c3e58aadd756e49b178fcce54d504a4dac686be435f25f5851483270e3fe6572bbd21ca83439878501ca134f27fad1a78cb7832056a45266865b9969dae26d88c0292a3cdc00e0af81d8916ba07719142fca0ef1f1bfbd9b17115fa4f3089bd5fc61b636e737625a96553361036ac6024276870d6a8201aac3ea7936e11fd8fa405d562778b68295a69395ecb4dd24c71b153f056a34",
+    "chunkSize": 185,
+    "streamId": 2147483632,
+    "fragments": [
+      "4d7ffffff000000004bb882bcb216676e0cdad1fc237daa274eac66b37cfda79b945f45d26d9a1a0f6b0ccc51ccbfb481413508c63e597d5eb55fc7ae99188ad5d9d6c1009a3a12b8e1131aa238fcb867d84dd37f5cb0d4826aeb7ba5ff7cfe84ce4814e2280f0f2f56cadeb47d6a098cfda57a13f7cca035e24e93f9c65e524444684dc9d8bef141eafd2dc8a9f6efb41d192db373d6062aa88cc7441138ad1d93132ef6cd60a50a9af13bc76fb2dbe3babf00b3889a75eb1",
+      "4d7ffffff000010004d03971618c52c254d9bc89f4e5a315c9a49d70ff8f0c6d44ad2e54bd8fd1db179785dc34303d0e70b5dce71231cc1fc0abc0d98f15ebc35ca0417927b24acc4b9bf1faeab298dbb900f6652ba7cf132b43e872addb2bc2125142d96e086d62f63eadc8969a3a5240394d99a4268ffbd5d1234e5242d1f9bd116a8205dc02b53f07664417c3052eada34b8a4805ab9f341c3fa75b40ec3352351f7d202d9981101e684bbbdec0abc5c6d342438a7d0c8b",
+      "4d7ffffff000020004d16a9131df5ac41f97119b762ca2f6a9d34ea94bee3cca81eca5221073e5cb720075811abbd626aa13675d1ac267af3e17453d18cacb1993a5d4ab8271e09db09d91b6838853bf760bf8c37408ce4bb301d6569f9f0694404349b93ba9f5b93d00b3c3e58aadd756e49b178fcce54d504a4dac686be435f25f5851483270e3fe6572bbd21ca83439878501ca134f27fad1a78cb7832056a45266865b9969dae26d88c0292a3cdc00e0af81d8916ba077",
+      "4d7ffffff00003000419142fca0ef1f1bfbd9b17115fa4f3089bd5fc61b636e737625a96553361036ac6024276870d6a8201aac3ea7936e11fd8fa405d562778b68295a69395ecb4dd24c71b153f056a34"
+    ]
+  },
+  "safetyNumber": {
+    "keyA": "a3ad1329c55c2171ae5554d12c5d20b01ad4d0f1b84739f15df951730b4eb3cb",
+    "keyB": "9d1f2103d51b348208c5ab936899e2e9f0bf70344a5f0ec5293690d62712ae05",
+    "digits": "668915779569456882966704"
+  },
+  "invite": {
+    "channel": "night-owls",
+    "key": "281d4c6d134604538e35bf78a96e6cd5fc747c467fe6ea7bcb91e531ae93d03d",
+    "body": "1 night-owls 281d4c6d134604538e35bf78a96e6cd5fc747c467fe6ea7bcb91e531ae93d03d"
+  },
+  "pin": {
+    "pin": "2468",
+    "salt": "c89f7f46d003f663f081ce38b49e317f",
+    "iterations": 60000,
+    "hash": "ac935ba837981701c8721bbede79f194a8c36ab794872fa3fed2de2022ed2ab0"
+  },
+  "nicknames": [
+    {
+      "nickname": "Alice",
+      "valid": true
+    },
+    {
+      "nickname": "🌙 Luna",
+      "valid": true
+    },
+    {
+      "nickname": " Alice",
+      "valid": false
+    },
+    {
+      "nickname": "Alice ",
+      "valid": false
+    },
+    {
+      "nickname": "",
+      "valid": false
+    },
+    {
+      "nickname": "aaaaaaaaaaaaaaaaaaaa",
+      "valid": true
+    },
+    {
+      "nickname": "aaaaaaaaaaaaaaaaaaaaa",
+      "valid": false
+    },
+    {
+      "nickname": "Al\u0007ice",
+      "valid": false
+    },
+    {
+      "nickname": "Ünïcødé",
+      "valid": true
+    },
+    {
+      "nickname": "\u00a0x",
+      "valid": false
+    }
+  ],
+  "channelNames": [
+    {
+      "input": "#Night Owls",
+      "normalized": "night-owls"
+    },
+    {
+      "input": "nearby",
+      "normalized": null
+    },
+    {
+      "input": "  ##x",
+      "normalized": "x"
+    },
+    {
+      "input": "Über Café",
+      "normalized": "ber-caf"
+    },
+    {
+      "input": "a\tb  c",
+      "normalized": "a-b-c"
+    },
+    {
+      "input": "UPPER_case-1",
+      "normalized": "upper_case-1"
+    },
+    {
+      "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "normalized": "xxxxxxxxxxxxxxxxxxxxxxxx"
+    }
+  ]
+}
