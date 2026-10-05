@@ -5,10 +5,11 @@
 [![Build](../../actions/workflows/build.yml/badge.svg)](../../actions/workflows/build.yml)
 ![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)
 ![Platform: Android 8+](https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white)
+![Platform: iOS 17+ (beta)](https://img.shields.io/badge/iOS-17%2B%20beta-000000?logo=apple&logoColor=white)
 ![No internet permission](https://img.shields.io/badge/network-none-critical)
 
-Murmur is a free, open-source Android app where phones talk to each other over **Bluetooth Low
-Energy** and relay messages for each other in a mesh, so a message can reach someone who is out of
+Murmur is a free, open-source app for **Android** and **iPhone** where phones talk to each other over
+**Bluetooth Low Energy** and relay messages for each other in a mesh, so a message can reach someone who is out of
 your own range as long as other Murmur phones sit in between. Direct messages and voice calls are
 end-to-end encrypted, and the app **has no internet permission** — it is physically incapable of
 sending your data over the network.
@@ -23,6 +24,7 @@ sending your data over the network.
 - [Features](#features)
 - [Install the APK on your phone](#install-the-apk-on-your-phone)
 - [Build it yourself](#build-it-yourself)
+- [iPhone (beta)](#iphone-beta)
 - [Test plan with 2–3 phones](#test-plan-with-23-phones)
 - [How it's built](#how-its-built)
 - [Privacy and security](#privacy-and-security)
@@ -85,6 +87,35 @@ plugin downloads missing pieces if the SDK licenses are accepted).
 
 If the SDK isn't found, create `local.properties` with `sdk.dir=/path/to/Android/sdk` or set
 `ANDROID_HOME`.
+
+## iPhone (beta)
+
+The iPhone app (in [`ios/`](ios)) speaks exactly the same protocol, so **iPhones and Android phones
+chat together on one mesh**: #nearby, end-to-end encrypted DMs with Sent → Delivered → Read, password
+channels and invites, reactions, delete for everyone, waves, disappearing messages, SOS alerts,
+blocking, favorites and safety numbers (the same number shows on both phones).
+
+Not on iPhone yet: **voice calls** (an Android phone calling an iPhone is told straight away that it
+can't take calls, and the iPhone shows a note), the Radar animation, sending SOS alerts, app lock,
+replies and Demo mode.
+
+**Installing.** Apple doesn't allow installing apps from a file the way Android does, so there's no
+one-tap download:
+
+- **With a Mac:** `brew install xcodegen && cd ios && xcodegen && open Murmur.xcodeproj`, pick your
+  Apple ID under *Signing & Capabilities*, plug in the iPhone and press Run. A free Apple ID works;
+  the app then needs re-installing every 7 days.
+- **Without a Mac:** each green **iOS** run on the Actions tab has an unsigned build
+  (**Artifacts → Murmur-iOS-unsigned**). Tools such as AltStore or Sideloadly sign it with your own
+  Apple ID and install it (again every 7 days with a free Apple ID).
+- **TestFlight / App Store** need a paid Apple Developer account ($99/year); not set up.
+
+**Good to know.** iOS limits Bluetooth for apps in the background: a backgrounded iPhone can't be found
+by Android phones, but it keeps scanning and connecting to them itself, so messages keep flowing (a
+bit more slowly). With Murmur open, everything works both ways.
+
+Developing: `cd ios/MurmurCore && swift test` runs the protocol tests, including vectors exported
+from the Android code (`core/…/CrossPlatformVectorsTest.kt`), so the two apps can't drift apart.
 
 ## Test plan with 2–3 phones
 
@@ -168,11 +199,16 @@ replies, reactions, waves and a demo channel without other phones.
 - `:app`: `BleTransport` (GATT server + client, one link per connection, all state on one thread),
   `MeshService` (foreground service), Room + DataStore, identity keys wrapped by the Android Keystore,
   and a Jetpack Compose + Material 3 UI with manual dependency injection (`AppContainer`).
+- `ios/MurmurCore`: the same protocol, crypto (CryptoKit), fragmentation and mesh node in Swift, tested
+  against byte-exact vectors from `:core`. `ios/Murmur`: the SwiftUI app, a CoreBluetooth transport
+  with Android's connection rules, and `AppModel` (the counterpart of `ChatRepository`). The Xcode
+  project is generated from `ios/project.yml`.
 
 ## Privacy and security
 
 - Your identity is an Ed25519 signing key and an X25519 key, created on first launch. The private keys
-  are encrypted with an AES-256-GCM key kept in the Android Keystore. Backups are disabled.
+  are encrypted with an AES-256-GCM key kept in the Android Keystore. Backups are disabled. On iPhone
+  they live in the Keychain, on this device only (never synced or backed up).
 - Every packet is signed; forged or tampered packets are dropped and not relayed.
 - DMs are encrypted per message (ephemeral X25519 → HKDF-SHA256 → ChaCha20-Poly1305).
 - **What others can see**: #nearby messages are public. For DMs, relays can see who is talking to whom,
@@ -199,7 +235,9 @@ replies, reactions, waves and a demo channel without other phones.
   breaks messaging.
 - Android may stop background services on some phones despite the foreground service (see battery
   note above).
-- Not compatible with Bitchat or iOS.
+- Not compatible with Bitchat.
+- On iPhone: no voice calls yet, and a backgrounded iPhone can only connect out (see
+  [iPhone (beta)](#iphone-beta)).
 - Demo mode is a UI preview only; it never touches Bluetooth.
 
 ## Publishing a release

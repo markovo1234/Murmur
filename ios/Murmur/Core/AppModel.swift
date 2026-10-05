@@ -765,6 +765,11 @@ final class AppModel {
             messages[cid] = list.filter { ($0.expiresAt ?? .max) > now }
             refreshPreview(cid)
         }
+        // #nearby keeps a day, like on Android.
+        if let nearby = messages[ConversationId.nearby], let first = nearby.first, now - first.sortKey > AppModel.nearbyRetention {
+            messages[ConversationId.nearby] = nearby.filter { now - $0.sortKey <= AppModel.nearbyRetention }
+            refreshPreview(ConversationId.nearby)
+        }
         typingUntil = typingUntil.filter { $0.value > now }
         nearbyChannels = nearbyChannels.filter { now - $0.value.lastSeen < 5 * 60_000 }
     }
@@ -778,4 +783,5 @@ final class AppModel {
     }
 
     static let maxMessagesPerChat = 1_000
+    static let nearbyRetention: Int64 = 24 * 3_600_000
 }

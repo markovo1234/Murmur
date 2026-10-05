@@ -208,6 +208,17 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(a.safetyNumber(b.myHex), b.safetyNumber(a.myHex))
     }
 
+    func testNearbyKeepsADay() {
+        let (a, _) = phone("Ada", seed: 1)
+        let (b, _) = phone("Bo", seed: 2)
+        settle()
+        a.send("old news", in: ConversationId.nearby)
+        settle()
+        settle(25 * 3_600_000)
+        XCTAssertEqual(texts(b, ConversationId.nearby), [])
+        XCTAssertEqual(texts(a, ConversationId.nearby), [])
+    }
+
     func testEraseEverything() {
         let (a, _) = phone("Ada", seed: 1)
         let oldId = a.myHex
