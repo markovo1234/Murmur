@@ -31,8 +31,17 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
+      # Compiler errors, lint findings and failed tests show up as annotations on the run and the commit.
+      - name: Register problem matchers
+        run: echo "::add-matcher::.github/matchers/gradle.json"
+
       - name: Test, lint and build
-        run: ./gradlew --no-daemon :core:test :app:lintDebug :app:dist
+        run: ./gradlew --no-daemon --continue :core:test :app:lintDebug :app:dist
+
+      # Gradle prints only the first lint error; the text report lists all of them for the matcher.
+      - name: Show lint findings
+        if: failure()
+        run: cat app/build/reports/lint-results-debug.txt 2>/dev/null || true
 
       - name: Upload APKs
         uses: actions/upload-artifact@v7
