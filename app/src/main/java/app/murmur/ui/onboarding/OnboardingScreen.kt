@@ -258,7 +258,7 @@ private fun PermissionsPage(
                 PermissionCard(
                     icon = Icons.Filled.Warning,
                     title = "Bluetooth LE not available",
-                    reason = "This phone can't run the mesh. You can still explore Murmur with Demo mode in Settings.",
+                    reason = "This phone can't run the mesh. You can still explore Murmur with Demo mode (You → Diagnostics).",
                     state = PermState.PERMANENTLY_DENIED,
                     onRequest = {},
                     onOpenSettings = {},

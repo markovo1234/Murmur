@@ -1,6 +1,23 @@
 package app.murmur.ui.peer
 
+import android.Manifest
 import android.content.res.Configuration
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.style.TextOverflow
+import app.murmur.call.StartCallResult
+import app.murmur.ui.theme.MurmurType
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,7 +26,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
@@ -32,9 +48,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -42,9 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -59,10 +71,8 @@ import app.murmur.data.Peer
 import app.murmur.data.ThemeMode
 import app.murmur.ui.components.EmojiAvatar
 import app.murmur.ui.components.Format
-import app.murmur.ui.components.HopBadge
 import app.murmur.ui.components.MurmurIcons
 import app.murmur.ui.components.PreviewData
-import app.murmur.ui.components.SignalBars
 import app.murmur.ui.containerViewModel
 import app.murmur.ui.theme.Dimens
 import app.murmur.ui.theme.MurmurTheme
@@ -113,6 +123,18 @@ class PeerSheetViewModel(private val c: AppContainer, private val peerId: PeerId
 
     /** Returns false when throttled. */
     suspend fun wave(): Boolean = c.chats.wave(peerId)
+
+    fun hasMicPermission(): Boolean = c.calls.hasMicPermission()
+
+    /** Starts a call; returns why it couldn't, or null when it's ringing. */
+    suspend fun call(): String? = when (c.calls.startCall(peerId)) {
+        StartCallResult.STARTED -> null
+        StartCallResult.ALREADY_IN_CALL -> "You're already in a call."
+        StartCallResult.MESH_OFF -> "The mesh is off, so calls can't go out."
+        StartCallResult.OFFLINE -> "${state.value.displayName} is offline. Calls need them in range or through the mesh."
+        StartCallResult.BLOCKED -> "Unblock them to call."
+        StartCallResult.DEMO -> "Demo people can't take calls. Try it with a friend's phone."
+    }
 }
 
 /** Everything the peer sheet can do. */
@@ -123,6 +145,8 @@ class PeerSheetActions(
     val onToggleFavorite: () -> Unit = {},
     val onSetAlias: (String?) -> Unit = {},
     val onWave: suspend () -> Boolean = { true },
+    /** Returns why the call couldn't start, or null. */
+    val onCall: suspend () -> String? = { null },
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -130,6 +154,11 @@ class PeerSheetActions(
 fun PeerSheet(peerId: PeerId, onDismiss: () -> Unit, onMessage: () -> Unit) {
     val vm = containerViewModel(key = "peer-${peerId.toHex()}") { PeerSheetViewModel(it, peerId) }
     val state by vm.state.collectAsStateWithLifecycle()
+    var callProblem by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) scope.launch { callProblem = vm.call() } else callProblem = "Murmur needs the microphone for calls."
+    }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(topStart = Dimens.SheetRadius, topEnd = Dimens.SheetRadius),
@@ -143,16 +172,26 @@ fun PeerSheet(peerId: PeerId, onDismiss: () -> Unit, onMessage: () -> Unit) {
                 onToggleFavorite = vm::toggleFavorite,
                 onSetAlias = vm::setAlias,
                 onWave = vm::wave,
+                onCall = {
+                    if (vm.hasMicPermission()) {
+                        vm.call()
+                    } else {
+                        micLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        null
+                    }
+                },
             ),
+            notice = callProblem,
         )
     }
 }
 
 @Composable
-fun PeerSheetContent(state: PeerSheetUi, actions: PeerSheetActions) {
+fun PeerSheetContent(state: PeerSheetUi, actions: PeerSheetActions, notice: String? = null) {
     val peer = state.peer
     var renaming by remember { mutableStateOf(false) }
     var waved by remember { mutableStateOf<Boolean?>(null) }
+    var callNotice by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(waved) {
         if (waved != null) {
@@ -160,125 +199,84 @@ fun PeerSheetContent(state: PeerSheetUi, actions: PeerSheetActions) {
             waved = null
         }
     }
+    val shownNotice = callNotice ?: notice
     Column(
         Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 24.dp)
+            .padding(horizontal = 20.dp)
             .padding(bottom = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         if (peer == null) {
             Text("This peer is no longer known.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             return@Column
         }
-        EmojiAvatar(peer.emoji, peer.colorIndex, 96.dp, online = peer.isOnline, verified = peer.verified)
+        // Who, and how a message gets to them.
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = actions.onToggleFavorite) {
-                Icon(
-                    if (peer.favorite) Icons.Filled.Star else MurmurIcons.StarOutline,
-                    contentDescription = if (peer.favorite) "Remove from favorites" else "Add to favorites",
-                    tint = if (peer.favorite) MurmurTheme.colors.hop else MaterialTheme.colorScheme.onSurfaceVariant,
+            EmojiAvatar(peer.emoji, peer.colorIndex, 64.dp, online = peer.isOnline, verified = peer.verified)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    state.displayName,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
-            }
-            Text(
-                state.displayName,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            IconButton(onClick = { renaming = true }) {
-                Icon(Icons.Filled.Edit, contentDescription = "Set a nickname for ${peer.name}")
-            }
-        }
-        if (peer.alias != null) {
-            Text(
-                "Calls themselves “${peer.nickname}”",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            when (peer.status) {
-                PeerStatus.NEARBY -> SignalBars(peer.rssi)
-                PeerStatus.VIA_MESH -> HopBadge(peer.hops)
-                PeerStatus.OFFLINE -> Unit
-            }
-            val line = if (peer.status == PeerStatus.OFFLINE) "offline · last seen ${Format.lastSeen(state.now, peer.lastSeen)}" else Format.peerStatus(peer)
-            Text(line, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        if (peer.firstSeen > 0) {
-            Text(
-                "First met ${Format.day(state.now, peer.firstSeen).lowercase().let { if (it == "today" || it == "yesterday") it else "on $it" }}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Safety number", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-                val number = state.safetyNumber
-                if (number != null) {
-                    val groups = number.split(" ")
-                    Column(
-                        Modifier.fillMaxWidth().semantics { contentDescription = "Safety number ${number.replace(" ", ", ")}" },
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        for (row in groups.chunked(3)) {
-                            Text(
-                                row.joinToString("   "),
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 20.sp,
-                                letterSpacing = 1.sp,
-                                style = MaterialTheme.typography.titleLarge,
-                            )
-                        }
-                    }
-                    Text(
-                        "Compare this with the number on ${peer.name}'s phone. If they match, nobody is impersonating them.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Row(
-                        Modifier.fillMaxWidth().heightIn(min = Dimens.MinTouch),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(MurmurIcons.Verified, contentDescription = null, tint = if (peer.verified) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.width(12.dp))
-                        Text("Mark as verified", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                        Switch(
-                            checked = peer.verified,
-                            onCheckedChange = { actions.onToggleVerified() },
-                            modifier = Modifier.semantics { contentDescription = "Mark as verified" },
-                        )
-                    }
-                } else {
-                    Text("Available once their key has been received.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    Format.route(peer, state.now),
+                    style = MurmurType.Mono,
+                    color = if (peer.status == PeerStatus.VIA_MESH) MurmurTheme.colors.hop else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                val extra = listOfNotNull(
+                    peer.alias?.let { "calls themselves “${peer.nickname}”" },
+                    peer.firstSeen.takeIf { it > 0 }?.let {
+                        "first met " + Format.day(state.now, it).lowercase().let { d -> if (d == "today" || d == "yesterday") d else "on $d" }
+                    },
+                )
+                if (extra.isNotEmpty()) {
+                    Text(extra.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+            CircleAction(
+                onClick = { renaming = true },
+                label = "Set a nickname for ${peer.name}",
+            ) { Icon(Icons.Filled.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp)) }
+            CircleAction(
+                onClick = actions.onToggleFavorite,
+                label = if (peer.favorite) "Remove from favorites" else "Add to favorites",
+            ) {
+                Icon(
+                    if (peer.favorite) Icons.Filled.Star else MurmurIcons.StarOutline,
+                    contentDescription = null,
+                    tint = if (peer.favorite) MurmurTheme.colors.hop else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
         }
 
+        // Message (primary) · Wave · Call
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(
-                onClick = actions.onToggleBlocked,
-                modifier = Modifier.weight(1f).heightIn(min = Dimens.MinTouch),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            val tall = Modifier.height(52.dp)
+            Button(
+                onClick = actions.onMessage,
+                enabled = !peer.blocked,
+                shape = RoundedCornerShape(18.dp),
                 contentPadding = PaddingValues(horizontal = 12.dp),
+                modifier = tall.weight(1.4f),
             ) {
-                Icon(MurmurIcons.Block, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(if (peer.blocked) "Unblock" else "Block", maxLines = 1)
+                Icon(MurmurIcons.Chat, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Message", maxLines = 1, fontWeight = FontWeight.SemiBold)
             }
-            OutlinedButton(
-                onClick = {
-                    scope.launch { waved = actions.onWave() }
-                },
+            FilledTonalButton(
+                onClick = { scope.launch { waved = actions.onWave() } },
                 enabled = !peer.blocked && peer.isOnline && waved == null,
-                modifier = Modifier.weight(1f).heightIn(min = Dimens.MinTouch),
-                contentPadding = PaddingValues(horizontal = 12.dp),
+                shape = RoundedCornerShape(18.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp),
+                colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = MaterialTheme.colorScheme.onSurface),
+                modifier = tall.weight(1f),
             ) {
                 Text(
                     when (waved) {
@@ -287,18 +285,36 @@ fun PeerSheetContent(state: PeerSheetUi, actions: PeerSheetActions) {
                         null -> "👋 Wave"
                     },
                     maxLines = 1,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
-            Button(
-                onClick = actions.onMessage,
-                modifier = Modifier.weight(1f).heightIn(min = Dimens.MinTouch),
-                enabled = !peer.blocked,
-                contentPadding = PaddingValues(horizontal = 12.dp),
+            FilledTonalButton(
+                onClick = { scope.launch { callNotice = actions.onCall() } },
+                enabled = !peer.blocked && peer.isOnline,
+                shape = RoundedCornerShape(18.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp),
+                colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = MaterialTheme.colorScheme.onSurface),
+                modifier = tall.weight(1f),
             ) {
-                Icon(MurmurIcons.Chat, contentDescription = null, modifier = Modifier.size(18.dp))
+                Icon(Icons.Filled.Call, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("Message", maxLines = 1)
+                Text("Call", maxLines = 1, fontWeight = FontWeight.SemiBold)
             }
+        }
+        if (shownNotice != null) {
+            Text(shownNotice, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
+
+        SafetyCard(state, peer, actions.onToggleVerified)
+
+        TextButton(
+            onClick = actions.onToggleBlocked,
+            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            modifier = Modifier.align(Alignment.CenterHorizontally).heightIn(min = Dimens.MinTouch),
+        ) {
+            Icon(MurmurIcons.Block, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(if (peer.blocked) "Unblock ${peer.name}" else "Block ${peer.name}")
         }
     }
 
@@ -314,6 +330,89 @@ fun PeerSheetContent(state: PeerSheetUi, actions: PeerSheetActions) {
         )
     }
 }
+
+/** Safety number in a grid, with a verified state and one button to change it. */
+@Composable
+private fun SafetyCard(state: PeerSheetUi, peer: Peer, onToggleVerified: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Safety number", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Text(
+                    if (peer.verified) "VERIFIED" else "NOT VERIFIED",
+                    style = MurmurType.Mono,
+                    fontSize = 10.5.sp,
+                    color = if (peer.verified) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            val number = state.safetyNumber
+            if (number == null) {
+                Text("Available once their key has been received.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                return@Column
+            }
+            val groups = number.split(" ")
+            Column(
+                Modifier.fillMaxWidth().semantics { contentDescription = "Safety number ${number.replace(" ", ", ")}" },
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                for (row in groups.chunked(SAFETY_COLUMNS)) {
+                    Row(Modifier.fillMaxWidth()) {
+                        for (g in row) {
+                            Text(g, style = MurmurType.Mono, fontSize = 16.sp, letterSpacing = 0.6.sp, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                        }
+                        repeat(SAFETY_COLUMNS - row.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                }
+            }
+            Text(
+                if (peer.verified) {
+                    "You checked this with ${peer.name} in person."
+                } else {
+                    "Compare with ${peer.name}'s screen. Matching numbers mean nobody is impersonating them."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            FilledTonalButton(
+                onClick = onToggleVerified,
+                shape = RoundedCornerShape(14.dp),
+                colors = if (peer.verified) {
+                    ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer)
+                } else {
+                    ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = MaterialTheme.colorScheme.onSurface)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = Dimens.MinTouch)
+                    .semantics { stateDescription = if (peer.verified) "Verified" else "Not verified" },
+            ) {
+                Text(if (peer.verified) "Verified ✓ · tap to undo" else "Numbers match: mark verified", fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+/** 44 dp round button in a 48 dp touch target. */
+@Composable
+private fun CircleAction(onClick: () -> Unit, label: String, content: @Composable () -> Unit) {
+    Box(
+        Modifier
+            .size(Dimens.MinTouch)
+            .clip(CircleShape)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(Modifier.size(44.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainer), contentAlignment = Alignment.Center) { content() }
+    }
+}
+
+private const val SAFETY_COLUMNS = 3
 
 @Composable
 private fun AliasDialog(current: String, original: String, onSave: (String?) -> Unit, onDismiss: () -> Unit) {

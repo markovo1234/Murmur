@@ -72,7 +72,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.unit.sp
 import app.murmur.ui.theme.MurmurTheme
+import app.murmur.ui.theme.MurmurType
 import app.murmur.ui.theme.Palette
 import kotlinx.coroutines.launch
 import kotlin.math.PI
@@ -273,10 +278,76 @@ fun HopBadge(hops: Int, modifier: Modifier = Modifier) {
     ) {
         Text(
             "$hops hop${if (hops == 1) "" else "s"}",
-            style = MaterialTheme.typography.labelSmall,
+            style = MurmurType.Mono,
+            fontSize = 9.5.sp,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
         )
+    }
+}
+
+/** Mono, letter-spaced, upper-case section label ("CHANNELS"). */
+@Composable
+fun SectionLabel(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text.uppercase(),
+        style = MurmurType.Section,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier.semantics { heading() },
+    )
+}
+
+/**
+ * A pill-shaped "hold for 2 s" bar whose fill sweeps left to right while pressed, then springs back if
+ * released early. Accessibility services get [onAccessibilityClick] instead.
+ */
+@Composable
+fun HoldToConfirmBar(
+    label: String,
+    onConfirmed: () -> Unit,
+    modifier: Modifier = Modifier,
+    holdMillis: Int = 2_000,
+    color: Color = MaterialTheme.colorScheme.error,
+    onAccessibilityClick: () -> Unit = onConfirmed,
+) {
+    val progress = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
+    Box(
+        modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .clip(CircleShape)
+            .background(color.copy(alpha = 0.10f))
+            .border(1.dp, color.copy(alpha = 0.35f), CircleShape)
+            .drawBehind { drawRect(color.copy(alpha = 0.35f), size = size.copy(width = size.width * progress.value)) }
+            .pointerInput(Unit) {
+                detectTapGestures(onPress = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    val fill = scope.launch {
+                        progress.animateTo(1f, tween(((1f - progress.value) * holdMillis).toInt(), easing = LinearEasing))
+                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                        onConfirmed()
+                        progress.snapTo(0f)
+                    }
+                    tryAwaitRelease()
+                    if (fill.isActive) {
+                        fill.cancel()
+                        scope.launch { progress.animateTo(0f, spring(dampingRatio = 0.6f, stiffness = 300f)) }
+                    }
+                })
+            }
+            .semantics {
+                role = Role.Button
+                contentDescription = "$label. Hold for 2 seconds"
+                onClick(label) {
+                    onAccessibilityClick()
+                    true
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = color, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
     }
 }
 

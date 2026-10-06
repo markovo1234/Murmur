@@ -126,6 +126,9 @@ import app.murmur.ui.containerViewModel
 import app.murmur.ui.peer.PeerSheet
 import app.murmur.ui.theme.Dimens
 import app.murmur.ui.theme.MurmurTheme
+import app.murmur.ui.theme.MurmurType
+import androidx.compose.foundation.background
+import androidx.compose.material3.TopAppBarDefaults
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -274,18 +277,21 @@ fun ChatScreen(
             if (search != null) {
                 SearchBar(search, onChange = { actions.onSearch(it) }, onClose = { actions.onSearch(null) })
             } else {
-                ChatTopBar(
-                    state = state,
-                    menuOpen = menuOpen,
-                    onMenu = { menuOpen = it },
-                    actions = actions,
-                    onClearRequest = { confirmClear = true },
-                    onLeaveRequest = { confirmLeave = true },
-                    onTimerRequest = { timerDialog = true },
-                    onSosRequest = { sosDialog = true },
-                    onInviteRequest = { inviteSheet = true },
-                    onPasswordRequest = { passwordDialog = true },
-                )
+                Column(Modifier.background(MaterialTheme.colorScheme.background).padding(bottom = 4.dp)) {
+                    ChatTopBar(
+                        state = state,
+                        menuOpen = menuOpen,
+                        onMenu = { menuOpen = it },
+                        actions = actions,
+                        onClearRequest = { confirmClear = true },
+                        onLeaveRequest = { confirmLeave = true },
+                        onTimerRequest = { timerDialog = true },
+                        onSosRequest = { sosDialog = true },
+                        onInviteRequest = { inviteSheet = true },
+                        onPasswordRequest = { passwordDialog = true },
+                    )
+                    if (state.loaded) RouteStrip(state)
+                }
             }
         },
         bottomBar = {
@@ -310,11 +316,12 @@ fun ChatScreen(
                         placeholder = when (state.kind) {
                             ChatKind.NEARBY -> "Message everyone nearby"
                             ChatKind.CHANNEL -> "Message ${state.title}"
-                            ChatKind.DIRECT -> "Message"
+                            ChatKind.DIRECT -> "Message ${state.title}"
                         },
                         replyingTo = replyingTo,
                         onCancelReply = { actions.onReply(null) },
                         mentionNames = state.mentionNames,
+                        onWave = if (state.kind == ChatKind.DIRECT && state.peer?.isOnline == true) actions.onWave else null,
                     )
                 }
             }
@@ -449,6 +456,7 @@ private fun ChatTopBar(
     onPasswordRequest: () -> Unit,
 ) {
     TopAppBar(
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
         navigationIcon = {
             IconButton(onClick = actions.onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
         },
@@ -481,8 +489,13 @@ private fun ChatTopBar(
                             Icon(MurmurIcons.Muted, contentDescription = "Muted", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-                    AnimatedContent(state.subtitle, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "subtitle") {
-                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                    val subtitleColor = when {
+                        state.typing -> MaterialTheme.colorScheme.primary
+                        state.peer?.status == app.murmur.core.mesh.PeerStatus.VIA_MESH -> MurmurTheme.colors.hop
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                    AnimatedContent(if (state.typing) "typing…" else state.subtitle, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "subtitle") {
+                        Text(it, style = MurmurType.Mono, fontSize = 10.5.sp, color = subtitleColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }

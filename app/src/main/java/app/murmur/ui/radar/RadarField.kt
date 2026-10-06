@@ -8,6 +8,23 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import kotlinx.coroutines.launch
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -71,6 +88,10 @@ private val RING_FRACTIONS = floatArrayOf(0.30f, 0.56f, 0.80f)
 private const val MESH_RING_FRACTION = 1.0f
 private const val MAX_PEERS = 12
 
+/** With name labels on, nobody sits closer than this to the middle, so labels never cover you. */
+private const val MIN_NAMED_FRACTION = 0.48f
+private const val HOLD_MILLIS = 2_000
+
 /** Where a peer sits: direct peers on a ring by RSSI band (gliding within it), mesh-only peers outside. */
 internal fun radarRadiusFraction(peer: Peer): Float {
     if (peer.status != PeerStatus.NEARBY) return MESH_RING_FRACTION
@@ -112,6 +133,14 @@ fun RadarField(
     onPeerClick: (PeerId) -> Unit,
     modifier: Modifier = Modifier,
     showPeers: Boolean = true,
+    /** Name labels under each peer (and peers kept clear of your own avatar). */
+    showNames: Boolean = false,
+    selfSize: Dp = 56.dp,
+    /** Hold your own avatar for 2 s to run this (SOS). Null: your avatar is just a picture. */
+    onSelfHold: (() -> Unit)? = null,
+    /** TalkBack can't hold: what a double-tap on your avatar does instead. */
+    onSelfAccessibilityClick: () -> Unit = {},
+    onHoldingChange: (Boolean) -> Unit = {},
 ) {
     val reduce = MurmurTheme.reduceMotion
     val colors = MurmurTheme.colors
@@ -186,16 +215,27 @@ fun RadarField(
                 },
         )
 
-        EmojiAvatar(myEmoji, myColor, 56.dp, modifier = Modifier.semantics { contentDescription = "You" })
+        if (onSelfHold != null) {
+            HoldableSelf(myEmoji, myColor, selfSize, onSelfHold, onSelfAccessibilityClick, onHoldingChange)
+        } else {
+            EmojiAvatar(myEmoji, myColor, selfSize, modifier = Modifier.semantics { contentDescription = "You" })
+        }
 
         if (showPeers) {
-            PeerLayer(visiblePeers, radiusPx, bob, onPeerClick)
+            PeerLayer(visiblePeers, radiusPx, bob, onPeerClick, showNames, minFraction = if (showNames) MIN_NAMED_FRACTION else 0f)
         }
     }
 }
 
 @Composable
-private fun PeerLayer(peers: List<Peer>, radiusPx: Float, bob: State<Float>?, onPeerClick: (PeerId) -> Unit) {
+private fun PeerLayer(
+    peers: List<Peer>,
+    radiusPx: Float,
+    bob: State<Float>?,
+    onPeerClick: (PeerId) -> Unit,
+    showNames: Boolean,
+    minFraction: Float,
+) {
     val slots = remember { mutableStateMapOf<PeerId, Slot>() }
     var initialized by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
@@ -223,8 +263,9 @@ private fun PeerLayer(peers: List<Peer>, radiusPx: Float, bob: State<Float>?, on
     for ((id, slot) in slots) {
         androidx.compose.runtime.key(id.raw) {
             val peer = slot.peer
-            LaunchedEffect(radarRadiusFraction(peer)) {
-                val target = radarRadiusFraction(peer)
+            val targetFraction = radarRadiusFraction(peer).coerceAtLeast(minFraction)
+            LaunchedEffect(targetFraction) {
+                val target = targetFraction
                 if (reduce) slot.radius.snapTo(target) else slot.radius.animateTo(target, Motion.move())
             }
             if (!slot.visible.targetState && slot.visible.isIdle && !slot.visible.currentState) {
@@ -241,14 +282,14 @@ private fun PeerLayer(peers: List<Peer>, radiusPx: Float, bob: State<Float>?, on
                     IntOffset((cos(angle) * r).roundToInt(), (sin(angle) * r).roundToInt())
                 },
             ) {
-                RadarAvatar(peer, slot.isNew && !reduce, bob, phase, bobPx, onClick = { onPeerClick(id) })
+                RadarAvatar(peer, slot.isNew && !reduce, bob, phase, bobPx, showNames, onClick = { onPeerClick(id) })
             }
         }
     }
 }
 
 @Composable
-private fun RadarAvatar(peer: Peer, ripple: Boolean, bob: State<Float>?, phase: Float, bobPx: Float, onClick: () -> Unit) {
+private fun RadarAvatar(peer: Peer, ripple: Boolean, bob: State<Float>?, phase: Float, bobPx: Float, showName: Boolean, onClick: () -> Unit) {
     val rippleProgress = remember { Animatable(if (ripple) 0f else 1f) }
     LaunchedEffect(Unit) { if (ripple) rippleProgress.animateTo(1f, tween(900)) }
     val primary = MaterialTheme.colorScheme.primary
@@ -262,22 +303,108 @@ private fun RadarAvatar(peer: Peer, ripple: Boolean, bob: State<Float>?, phase: 
             .drawBehind {
                 val p = rippleProgress.value
                 if (p < 1f) drawCircle(primary, radius = size.minDimension / 2f * (1f + 1.4f * p), alpha = 0.5f * (1f - p), style = Stroke(2.dp.toPx()))
-            }
-            .clip(CircleShape)
-            .clickable(onClickLabel = "Open profile", role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = Format.peerA11y(peer) },
+            },
         contentAlignment = Alignment.Center,
     ) {
-        EmojiAvatar(
-            peer.emoji,
-            peer.colorIndex,
-            44.dp,
-            modifier = Modifier.sharedAvatar(peer.id.toHex()),
-            verified = peer.verified,
-        )
-        if (peer.status == PeerStatus.VIA_MESH) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .clip(CircleShape)
+                .clickable(onClickLabel = "Open profile", role = Role.Button, onClick = onClick)
+                .semantics { contentDescription = Format.peerA11y(peer) },
+            contentAlignment = Alignment.Center,
+        ) {
+            EmojiAvatar(
+                peer.emoji,
+                peer.colorIndex,
+                44.dp,
+                modifier = Modifier.sharedAvatar(peer.id.toHex()),
+                verified = peer.verified,
+            )
+        }
+        val mesh = peer.status == PeerStatus.VIA_MESH
+        if (mesh) {
             HopBadge(peer.hops, Modifier.align(Alignment.BottomCenter).offset(y = 6.dp))
         }
+        if (showName) {
+            // Drawn outside the 48 dp box so it never changes where the avatar sits.
+            Text(
+                peer.name,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .wrapContentWidth(unbounded = true)
+                    .offset(y = if (mesh) 55.dp else 47.dp)
+                    .widthIn(max = 88.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(MaterialTheme.colorScheme.background.copy(alpha = 0.72f))
+                    .padding(horizontal = 6.dp, vertical = 1.dp)
+                    .clearAndSetSemantics {},
+            )
+        }
+    }
+}
+
+/**
+ * Your own avatar in the middle. Holding it fills a ring over [HOLD_MILLIS], then runs [onHeld];
+ * letting go early springs the ring back.
+ */
+@Composable
+private fun HoldableSelf(
+    emoji: String,
+    color: Int,
+    size: Dp,
+    onHeld: () -> Unit,
+    onAccessibilityClick: () -> Unit,
+    onHoldingChange: (Boolean) -> Unit,
+) {
+    val progress = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
+    val alarm = MaterialTheme.colorScheme.error
+    Box(
+        Modifier
+            .size(size + 12.dp)
+            .drawBehind {
+                val p = progress.value
+                if (p > 0f) {
+                    drawCircle(alarm.copy(alpha = 0.15f))
+                    drawArc(alarm, startAngle = -90f, sweepAngle = 360f * p, useCenter = true)
+                }
+            }
+            .pointerInput(Unit) {
+                detectTapGestures(onPress = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onHoldingChange(true)
+                    val fill = scope.launch {
+                        progress.animateTo(1f, tween(((1f - progress.value) * HOLD_MILLIS).toInt(), easing = LinearEasing))
+                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                        onHeld()
+                        progress.snapTo(0f)
+                    }
+                    tryAwaitRelease()
+                    onHoldingChange(false)
+                    if (fill.isActive) {
+                        fill.cancel()
+                        scope.launch { progress.animateTo(0f, spring(dampingRatio = 0.6f, stiffness = 300f)) }
+                    }
+                })
+            }
+            .semantics {
+                role = Role.Button
+                contentDescription = "You. Hold for 2 seconds to send an SOS to everyone in range"
+                onClick("Send SOS") {
+                    onAccessibilityClick()
+                    true
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        EmojiAvatar(emoji, color, size)
     }
 }
 

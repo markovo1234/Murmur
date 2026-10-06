@@ -72,6 +72,8 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
@@ -95,6 +97,8 @@ import app.murmur.ui.components.RichText
 import app.murmur.ui.components.TypingDots
 import app.murmur.ui.theme.Dimens
 import app.murmur.ui.theme.MurmurTheme
+import app.murmur.ui.theme.MurmurType
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -393,6 +397,13 @@ private fun MetaRow(msg: MessageUi, isRoom: Boolean, onRetry: () -> Unit) {
         )
         return
     }
+    val note = msg.statusNote
+    val noteColor = when {
+        note == null -> meta
+        note.waiting -> MurmurTheme.colors.hop
+        msg.status == DeliveryStatus.READ -> MaterialTheme.colorScheme.primary
+        else -> meta
+    }
     Row(
         Modifier.padding(top = 3.dp, start = 6.dp, end = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -400,8 +411,14 @@ private fun MetaRow(msg: MessageUi, isRoom: Boolean, onRetry: () -> Unit) {
     ) {
         if (!msg.outgoing && msg.hops > 1 && !msg.showHeader) HopBadge(msg.hops)
         if (msg.expiresAt > 0) Icon(MurmurIcons.Timer, contentDescription = "Disappears", tint = meta, modifier = Modifier.size(12.dp))
-        Text(Format.clock(msg.time), style = MaterialTheme.typography.labelSmall, color = meta)
-        if (msg.outgoing && !isRoom && msg.status != null && !msg.retracted) DeliveryTicks(msg.status)
+        if (msg.outgoing && !isRoom && msg.status != null && !msg.retracted) DeliveryTicks(msg.status, tint = if (note != null) noteColor else null)
+        AnimatedContent(
+            targetState = if (note == null || note.waiting) note?.text ?: Format.clock(msg.time) else "${Format.clock(msg.time)} · ${note.text}",
+            transitionSpec = { fadeIn(tween(160)) togetherWith fadeOut(tween(120)) },
+            label = "meta",
+        ) { text ->
+            Text(text, style = MurmurType.Mono, fontSize = 10.5.sp, color = noteColor)
+        }
     }
 }
 
@@ -416,9 +433,10 @@ fun statusLabel(status: DeliveryStatus): String = when (status) {
 
 /** Clock → ✓ → ✓✓ → ✓✓ in primary, crossfading with a small pop. */
 @Composable
-fun DeliveryTicks(status: DeliveryStatus) {
+fun DeliveryTicks(status: DeliveryStatus, tint: Color? = null) {
     val meta = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
     val reduce = MurmurTheme.reduceMotion
+    val tintOverride = tint
     AnimatedContent(
         targetState = status,
         transitionSpec = {
@@ -439,14 +457,14 @@ fun DeliveryTicks(status: DeliveryStatus) {
         },
         label = "ticks",
     ) { s ->
-        val (icon, tint) = when (s) {
+        val (icon, color) = when (s) {
             DeliveryStatus.PENDING, DeliveryStatus.SENDING -> MurmurIcons.Clock to meta
             DeliveryStatus.SENT -> MurmurIcons.Tick to meta
             DeliveryStatus.DELIVERED -> MurmurIcons.DoubleTick to meta
             DeliveryStatus.READ -> MurmurIcons.DoubleTick to MaterialTheme.colorScheme.primary
             DeliveryStatus.FAILED -> MurmurIcons.Clock to MaterialTheme.colorScheme.error
         }
-        Icon(icon, contentDescription = statusLabel(s).replaceFirstChar { it.uppercase() }, tint = tint, modifier = Modifier.size(16.dp))
+        Icon(icon, contentDescription = statusLabel(s).replaceFirstChar { it.uppercase() }, tint = tintOverride ?: color, modifier = Modifier.size(16.dp))
     }
 }
 
@@ -596,6 +614,8 @@ fun Composer(
     replyingTo: MessageUi? = null,
     onCancelReply: () -> Unit = {},
     mentionNames: List<String> = emptyList(),
+    /** DMs: a 👋 button left of the field. */
+    onWave: (() -> Unit)? = null,
 ) {
     val bytes = remember(text) { Murmur.utf8Size(text) }
     val tooLong = bytes > Murmur.MAX_TEXT_BYTES
@@ -606,7 +626,11 @@ fun Composer(
     val suggestions = remember(partial, mentionNames) {
         if (partial == null) emptyList() else mentionNames.filter { it.startsWith(partial, ignoreCase = true) && !it.equals(partial, ignoreCase = true) }.take(8)
     }
-    Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp, modifier = modifier) {
+    val edge = MaterialTheme.colorScheme.outlineVariant
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = modifier.drawBehind { drawLine(edge, Offset.Zero, Offset(size.width, 0f), 1.dp.toPx()) },
+    ) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding()) {
             AnimatedVisibility(replyingTo != null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                 val r = replyingTo
@@ -639,7 +663,23 @@ fun Composer(
                     }
                 }
             }
-            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp), verticalAlignment = Alignment.Bottom) {
+                if (onWave != null) {
+                    Box(
+                        Modifier
+                            .size(Dimens.MinTouch)
+                            .clip(CircleShape)
+                            .clickable(enabled = enabled, role = Role.Button, onClick = onWave)
+                            .semantics { contentDescription = "Wave" },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(
+                            Modifier.size(44.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainer),
+                            contentAlignment = Alignment.Center,
+                        ) { Text("👋", fontSize = 20.sp) }
+                    }
+                    Spacer(Modifier.width(8.dp))
+                }
                 TextField(
                     value = text,
                     onValueChange = onTextChange,
@@ -648,7 +688,7 @@ fun Composer(
                     placeholder = { Text(placeholder) },
                     minLines = 1,
                     maxLines = 5,
-                    shape = RoundedCornerShape(24.dp),
+                    shape = RoundedCornerShape(23.dp),
                     colors = TextFieldDefaults.colors(
                         focusedIndicatorColor = Color.Transparent,
                         unfocusedIndicatorColor = Color.Transparent,

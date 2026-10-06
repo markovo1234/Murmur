@@ -21,7 +21,13 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import app.murmur.R
 import app.murmur.data.ThemeMode
 
 /** Night-sky palette (dark) and its daytime counterpart. */
@@ -162,6 +168,54 @@ val LocalMurmurColors = staticCompositionLocalOf { murmurColors(DarkColors, true
 /** True when the system "Remove animations" setting (animator scale 0) is on. */
 val LocalReduceMotion = staticCompositionLocalOf { false }
 
+/** DM Sans for everything people read. */
+val DmSans = FontFamily(
+    Font(R.font.dm_sans_regular, FontWeight.Normal),
+    Font(R.font.dm_sans_medium, FontWeight.Medium),
+    Font(R.font.dm_sans_semibold, FontWeight.SemiBold),
+    Font(R.font.dm_sans_bold, FontWeight.Bold),
+)
+
+/** JetBrains Mono for mesh readouts: routes, hop counts, ids, timestamps. */
+val JetBrainsMono = FontFamily(
+    Font(R.font.jetbrains_mono_regular, FontWeight.Normal),
+    Font(R.font.jetbrains_mono_medium, FontWeight.Medium),
+    Font(R.font.jetbrains_mono_semibold, FontWeight.SemiBold),
+)
+
+private val Base = Typography()
+
+/** The Material type scale, set in DM Sans with slightly tighter display and headline tracking. */
+val MurmurTypography = Typography(
+    displayLarge = Base.displayLarge.copy(fontFamily = DmSans, letterSpacing = (-0.5).sp),
+    displayMedium = Base.displayMedium.copy(fontFamily = DmSans, letterSpacing = (-0.4).sp),
+    displaySmall = Base.displaySmall.copy(fontFamily = DmSans, letterSpacing = (-0.3).sp),
+    headlineLarge = Base.headlineLarge.copy(fontFamily = DmSans, letterSpacing = (-0.6).sp),
+    headlineMedium = Base.headlineMedium.copy(fontFamily = DmSans, letterSpacing = (-0.5).sp),
+    headlineSmall = Base.headlineSmall.copy(fontFamily = DmSans, letterSpacing = (-0.4).sp),
+    titleLarge = Base.titleLarge.copy(fontFamily = DmSans, letterSpacing = (-0.4).sp),
+    titleMedium = Base.titleMedium.copy(fontFamily = DmSans),
+    titleSmall = Base.titleSmall.copy(fontFamily = DmSans),
+    bodyLarge = Base.bodyLarge.copy(fontFamily = DmSans, fontSize = 15.sp, lineHeight = 21.sp, letterSpacing = 0.sp),
+    bodyMedium = Base.bodyMedium.copy(fontFamily = DmSans, letterSpacing = 0.sp),
+    bodySmall = Base.bodySmall.copy(fontFamily = DmSans, letterSpacing = 0.sp),
+    labelLarge = Base.labelLarge.copy(fontFamily = DmSans),
+    labelMedium = Base.labelMedium.copy(fontFamily = DmSans),
+    labelSmall = Base.labelSmall.copy(fontFamily = DmSans),
+)
+
+/** Text styles outside the Material scale. */
+object MurmurType {
+    /** Mesh readouts: "direct · strong signal", "via mesh · 3 hops", clock times. */
+    val Mono = TextStyle(fontFamily = JetBrainsMono, fontSize = 11.sp, lineHeight = 16.sp)
+
+    /** Small caps-style section labels: "CHANNELS", "DIRECT · END-TO-END ENCRYPTED". */
+    val Section = TextStyle(fontFamily = JetBrainsMono, fontSize = 10.5.sp, lineHeight = 14.sp, letterSpacing = 0.8.sp)
+
+    /** Big screen titles ("Chats", "You"). */
+    val ScreenTitle = TextStyle(fontFamily = DmSans, fontWeight = FontWeight.Bold, fontSize = 28.sp, lineHeight = 34.sp, letterSpacing = (-0.56).sp)
+}
+
 val MurmurShapes = Shapes(
     extraSmall = RoundedCornerShape(8.dp),
     small = RoundedCornerShape(12.dp),
@@ -201,7 +255,7 @@ fun MurmurTheme(
     }
     val extra = remember(scheme, dark) { murmurColors(scheme, dark) }
     CompositionLocalProvider(LocalMurmurColors provides extra, LocalReduceMotion provides reduceMotion) {
-        MaterialTheme(colorScheme = scheme, typography = Typography(), shapes = MurmurShapes, content = content)
+        MaterialTheme(colorScheme = scheme, typography = MurmurTypography, shapes = MurmurShapes, content = content)
     }
 }
 

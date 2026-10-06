@@ -14,3 +14,5 @@ Third-party components:
 - AndroidX, Jetpack Compose, Kotlin, kotlinx.coroutines and kotlinx.serialization — Apache License 2.0.
 The Material Symbols path data used in app/.../ui/components/MurmurIcons.kt is from
 Google's Material Symbols, licensed under the Apache License 2.0.
+The DM Sans and JetBrains Mono fonts in app/src/main/res/font are licensed under the SIL Open Font
+License 1.1; see licenses/DM-Sans-OFL.txt and licenses/JetBrains-Mono-OFL.txt.

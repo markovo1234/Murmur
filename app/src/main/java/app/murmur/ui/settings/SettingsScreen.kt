@@ -66,7 +66,18 @@ import app.murmur.core.mesh.Profile
 import app.murmur.data.Settings
 import app.murmur.data.ThemeMode
 import app.murmur.ui.components.EmojiAvatar
-import app.murmur.ui.components.HoldToConfirmButton
+import app.murmur.ui.components.HoldToConfirmBar
+import app.murmur.ui.components.PulsingDot
+import app.murmur.ui.components.SectionLabel
+import app.murmur.ui.theme.MurmurType
+import app.murmur.core.mesh.PeerStatus
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
 import app.murmur.ui.components.MurmurIcons
 import app.murmur.ui.container
 import app.murmur.ui.containerViewModel
@@ -89,6 +100,10 @@ data class SettingsUiState(
     val readReceipts: Boolean = true,
     val nearbyNotifications: Boolean = false,
     val blockedCount: Int = 0,
+    /** People heard directly right now. */
+    val directLinks: Int = 0,
+    /** People reachable only through other phones. */
+    val viaMesh: Int = 0,
     val lockEnabled: Boolean = false,
     val lockTimeoutMillis: Long = 0,
     val hideNotificationContent: Boolean = false,
@@ -115,6 +130,8 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
             readReceipts = settings.readReceipts,
             nearbyNotifications = settings.nearbyNotifications,
             blockedCount = peers.count { it.blocked },
+            directLinks = peers.count { it.status == PeerStatus.NEARBY && !it.blocked },
+            viaMesh = peers.count { it.status == PeerStatus.VIA_MESH && !it.blocked },
             lockEnabled = settings.appLock.enabled,
             lockTimeoutMillis = settings.appLock.timeoutMillis,
             hideNotificationContent = settings.hideNotificationContent,
@@ -228,28 +245,13 @@ fun SettingsScreen(state: SettingsUiState, contentPadding: PaddingValues, action
             top = contentPadding.calculateTopPadding() + 8.dp,
             bottom = contentPadding.calculateBottomPadding() + 24.dp,
         ),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item(key = "profile") {
-            Group("Profile") {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable(onClickLabel = "Edit profile", onClick = actions.onEditProfile)
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    val p = state.profile
-                    EmojiAvatar(p?.emoji ?: "🙂", p?.colorIndex ?: 0, 56.dp)
-                    Spacer(Modifier.width(16.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(p?.nickname ?: "–", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                        Text("Edit nickname and avatar", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
-                }
-            }
+        item(key = "title") {
+            Text("You", style = MurmurType.ScreenTitle, modifier = Modifier.padding(start = 4.dp).semantics { heading() })
         }
+        item(key = "profile") { ProfileCard(state, actions.onEditProfile) }
+        item(key = "mesh-card") { MeshCard(state) }
         item(key = "appearance") {
             Group("Appearance") {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -274,7 +276,6 @@ fun SettingsScreen(state: SettingsUiState, contentPadding: PaddingValues, action
                 )
             }
         }
-        item(key = "relay-card") { RelayCard(state.relayedTotal, state.relay) }
         item(key = "mesh") {
             Group("Mesh") {
                 SwitchRow("Relay for others", "Pass on messages so the mesh reaches further", state.relay, onChange = actions.onRelayChange)
@@ -357,19 +358,22 @@ fun SettingsScreen(state: SettingsUiState, contentPadding: PaddingValues, action
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Panic wipe", style = MaterialTheme.typography.bodyLarge)
-                    Text(
-                        "Erases all messages, settings and your identity keys, then starts over.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    HoldToConfirmButton(
-                        label = "Hold to wipe everything",
-                        onConfirmed = actions.onPanicWipe,
-                        onAccessibilityClick = { confirmWipe = true },
-                    )
-                }
+            }
+        }
+        item(key = "wipe") {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                HoldToConfirmBar(
+                    label = "Hold to wipe everything",
+                    onConfirmed = actions.onPanicWipe,
+                    onAccessibilityClick = { confirmWipe = true },
+                )
+                Text(
+                    "Erases chats, people, settings and your identity keys, then starts over. Hold for 2 seconds.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                )
             }
         }
         item(key = "diagnostics") {
@@ -429,9 +433,93 @@ fun SettingsScreen(state: SettingsUiState, contentPadding: PaddingValues, action
 @Composable
 private fun Group(title: String, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 4.dp))
-        Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large) {
+        SectionLabel(title, Modifier.padding(start = 8.dp, top = 8.dp))
+        Surface(
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            shape = CardShape,
+        ) {
             Column(Modifier.fillMaxWidth()) { content() }
+        }
+    }
+}
+
+private val CardShape = RoundedCornerShape(24.dp)
+
+/** Avatar, nickname and your id, with an Edit pill. */
+@Composable
+private fun ProfileCard(state: SettingsUiState, onEdit: () -> Unit) {
+    val p = state.profile
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        shape = CardShape,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier
+                .clickable(onClickLabel = "Edit profile", onClick = onEdit)
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            EmojiAvatar(p?.emoji ?: "🙂", p?.colorIndex ?: 0, 64.dp)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(p?.nickname ?: "–", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                if (state.peerId.isNotEmpty()) {
+                    Text(
+                        "id " + state.peerId.chunked(4).joinToString(" · "),
+                        style = MurmurType.Mono,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
+                Text("Edit", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp))
+            }
+        }
+    }
+}
+
+/** Mesh health at a glance: whether it keeps running, links, and how much this phone has relayed. */
+@Composable
+private fun MeshCard(state: SettingsUiState) {
+    val ink = MaterialTheme.colorScheme.onPrimaryContainer
+    val relayed = when (state.relayedTotal) {
+        0L -> "nothing relayed yet"
+        1L -> "1 message relayed"
+        else -> "${java.text.NumberFormat.getIntegerInstance().format(state.relayedTotal)} messages relayed"
+    }
+    Surface(
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = ink,
+        shape = CardShape,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                PulsingDot(if (state.keepRunning) MurmurTheme.colors.online else MaterialTheme.colorScheme.outline)
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    if (state.keepRunning) "Mesh running" else "Mesh runs only while Murmur is open",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            Text(
+                buildString {
+                    append("${state.directLinks} direct link${if (state.directLinks == 1) "" else "s"}")
+                    if (state.viaMesh > 0) append(" · ${state.viaMesh} via mesh")
+                    append("\n")
+                    append(if (state.relay) "relaying · $relayed" else "relaying off · $relayed")
+                    append("\nno internet permission · Bluetooth LE only")
+                },
+                style = MurmurType.Mono,
+                lineHeight = 18.sp,
+            )
         }
     }
 }
@@ -478,37 +566,6 @@ private fun NavRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title:
 }
 
 private val LOCK_TIMEOUTS = listOf(0L to "Now", 60_000L to "1 min", 300_000L to "5 min", 1_800_000L to "30 min")
-
-/** Shows how much this phone has helped the mesh. */
-@Composable
-private fun RelayCard(relayed: Long, relayOn: Boolean) {
-    Surface(
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-        shape = MaterialTheme.shapes.large,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(MurmurIcons.Hub, contentDescription = null, modifier = Modifier.size(32.dp))
-            Spacer(Modifier.width(16.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    when {
-                        relayed == 0L -> "No messages relayed yet"
-                        relayed == 1L -> "1 message relayed"
-                        else -> "${java.text.NumberFormat.getIntegerInstance().format(relayed)} messages relayed"
-                    },
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    if (relayOn) "Your phone passes messages along so others can reach further. Thank you!" else "Relaying is off, so the mesh can't hop through your phone.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-        }
-    }
-}
 
 /** What the PIN dialog is for. */
 enum class PinFlow { Create, Change, Disable }

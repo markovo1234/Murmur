@@ -2,6 +2,22 @@ package app.murmur.ui.chats
 
 import android.content.res.Configuration
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.sp
+import app.murmur.core.mesh.PeerStatus
+import app.murmur.ui.components.HopBadge
+import app.murmur.ui.components.SectionLabel
+import app.murmur.ui.theme.MurmurType
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -26,10 +42,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
@@ -83,7 +96,6 @@ import app.murmur.data.db.channelConversation
 import app.murmur.data.db.channelOf
 import app.murmur.ui.chat.ChatKind
 import app.murmur.ui.chat.RoomIcon
-import app.murmur.ui.components.AnimatedCount
 import app.murmur.ui.components.EmojiAvatar
 import app.murmur.ui.components.Format
 import app.murmur.ui.components.MurmurIcons
@@ -119,6 +131,8 @@ data class ConversationRow(
 
 data class ChatsUiState(
     val nearbyOnline: Int = 0,
+    /** Online, unblocked people, strongest first (the avatar stack on the #nearby card). */
+    val nearbyPeers: List<Peer> = emptyList(),
     val nearbyPreview: String = "",
     val nearbyUnread: Int = 0,
     val nearbyTime: Long = 0L,
@@ -169,6 +183,7 @@ class ChatsViewModel(private val c: AppContainer) : ViewModel() {
         }.sortedWith(compareByDescending<ConversationRow> { it.pinned }.thenByDescending { it.time })
         ChatsUiState(
             nearbyOnline = peers.count { it.isOnline && !it.blocked },
+            nearbyPeers = peers.filter { it.isOnline && !it.blocked },
             nearbyPreview = nearby?.preview.orEmpty(),
             nearbyUnread = nearby?.unread ?: 0,
             nearbyTime = nearby?.lastActivity ?: 0L,
@@ -268,20 +283,24 @@ fun ChatsScreen(state: ChatsUiState, contentPadding: PaddingValues, actions: Cha
     LazyColumn(contentPadding = contentPadding, modifier = Modifier.fillMaxWidth()) {
         item(key = "toolbar") {
             Row(
-                Modifier.fillMaxWidth().padding(start = Dimens.ScreenPadding, end = 8.dp, top = 4.dp),
+                Modifier.fillMaxWidth().padding(start = 20.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                FilledTonalButton(onClick = { joinOpen = true }) {
-                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Join channel")
-                }
-                Spacer(Modifier.weight(1f))
+                Text("Chats", style = MurmurType.ScreenTitle, modifier = Modifier.weight(1f).semantics { heading() })
                 if (state.anyUnread) {
-                    TextButton(onClick = actions.onMarkAllRead) {
-                        Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Mark all read")
+                    Row(
+                        Modifier
+                            .heightIn(min = Dimens.MinTouch)
+                            .wrapContentHeight()
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceContainer)
+                            .clickable(onClickLabel = "Mark all chats read", onClick = actions.onMarkAllRead)
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Filled.Check, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Read all", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -289,17 +308,23 @@ fun ChatsScreen(state: ChatsUiState, contentPadding: PaddingValues, actions: Cha
         item(key = "nearby") {
             NearbyCard(state, onClick = { actions.onOpen(NEARBY_CONVERSATION) }, onLongClick = { menuFor = NEARBY_CONVERSATION })
         }
-        if (state.channels.isNotEmpty()) {
-            item(key = "channels-header") { SectionHeader("Channels") }
-            items(state.channels, key = { it.id }) { row ->
-                ConversationItem(row, state.now, onClick = { actions.onOpen(row.id) }, onLongClick = { menuFor = row.id }, modifier = Modifier.animateItem())
+        item(key = "channels-header") { SectionLabel("Channels", Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 10.dp)) }
+        item(key = "channels") {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = Dimens.ScreenPadding),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                for (row in state.channels) {
+                    ChannelChip(row, onClick = { actions.onOpen(row.id) }, onLongClick = { menuFor = row.id })
+                }
+                JoinChip(onClick = { joinOpen = true })
             }
         }
-        item(key = "dm-header") { SectionHeader("Direct messages") }
+        item(key = "dm-header") { SectionLabel("Direct · end-to-end encrypted", Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 4.dp)) }
         if (state.rows.isEmpty()) {
             item(key = "hint") {
                 Text(
-                    "No direct messages yet. Tap someone on the Radar to start one.",
+                    "No direct messages yet. Tap someone on Around to start one.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
@@ -363,76 +388,164 @@ fun ChatsScreen(state: ChatsUiState, contentPadding: PaddingValues, actions: Cha
     }
 }
 
-@Composable
-private fun SectionHeader(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = Dimens.ScreenPadding, vertical = 8.dp)
-            .semantics { heading() },
-    )
-}
-
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun NearbyCard(state: ChatsUiState, onClick: () -> Unit, onLongClick: () -> Unit) {
     val haptics = LocalHapticFeedback.current
-    Card(
-        modifier = Modifier
+    val ink = MaterialTheme.colorScheme.onPrimaryContainer
+    val shape = RoundedCornerShape(24.dp)
+    Column(
+        Modifier
             .fillMaxWidth()
-            .padding(horizontal = Dimens.ScreenPadding, vertical = 8.dp)
+            .padding(horizontal = Dimens.ScreenPadding)
             .pressBounce(0.985f)
-            .semantics { contentDescription = "#nearby, ${state.nearbyOnline} online, ${state.nearbyUnread} unread${if (state.nearbyMuted) ", muted" else ""}" },
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer),
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.primaryContainer)
+            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.22f), shape)
+            .combinedClickable(
+                onClickLabel = "Open #nearby",
+                onLongClickLabel = "Chat options",
+                onClick = onClick,
+                onLongClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onLongClick()
+                },
+            )
+            .semantics(mergeDescendants = true) {
+                contentDescription = "#nearby, ${state.nearbyOnline} in range, ${state.nearbyUnread} unread${if (state.nearbyMuted) ", muted" else ""}"
+            }
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(
-            Modifier
-                .combinedClickable(
-                    onClickLabel = "Open #nearby",
-                    onLongClickLabel = "Chat options",
-                    onClick = onClick,
-                    onLongClick = {
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onLongClick()
-                    },
-                )
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            RoomIcon(ChatKind.NEARBY, locked = false, size = 48.dp)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            RoomIcon(ChatKind.NEARBY, locked = false, size = 44.dp)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("#nearby", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.width(8.dp))
-                    PulsingDot(if (state.nearbyOnline > 0) MurmurTheme.colors.online else MaterialTheme.colorScheme.outline, size = 6.dp)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        AnimatedCount(state.nearbyOnline, style = MaterialTheme.typography.labelMedium)
-                        Text(" online", style = MaterialTheme.typography.labelMedium)
-                    }
+                    Text("#nearby", style = MaterialTheme.typography.titleMedium, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = ink)
                     if (state.nearbyMuted) {
                         Spacer(Modifier.width(6.dp))
-                        Icon(MurmurIcons.Muted, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Icon(MurmurIcons.Muted, contentDescription = null, tint = ink, modifier = Modifier.size(14.dp))
                     }
                 }
-                Text(
-                    state.nearbyPreview.ifEmpty { "Everyone in range. Messages vanish after 24 h." },
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Text("everyone in range · vanishes after 24 h", style = MurmurType.Mono, fontSize = 10.5.sp, color = ink)
             }
-            Column(horizontalAlignment = Alignment.End) {
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (state.nearbyTime > 0) {
-                    Text(Format.relative(state.now, state.nearbyTime), style = MaterialTheme.typography.labelSmall)
+                    Text(Format.relative(state.now, state.nearbyTime), style = MurmurType.Mono, fontSize = 10.5.sp, color = ink)
                 }
-                if (state.nearbyUnread > 0) UnreadBadge(state.nearbyUnread, Modifier.padding(top = 4.dp))
+                if (state.nearbyUnread > 0) UnreadBadge(state.nearbyUnread)
             }
         }
+        Text(
+            state.nearbyPreview.ifEmpty { "Say hi to everyone in range 👋" },
+            style = MaterialTheme.typography.bodyMedium,
+            fontSize = 14.5.sp,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            val stack = state.nearbyPeers.take(MAX_STACK)
+            if (stack.isEmpty()) {
+                PulsingDot(MaterialTheme.colorScheme.outline, size = 6.dp)
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy((-6).dp)) {
+                    for (p in stack) StackAvatar(p, ringColor = MaterialTheme.colorScheme.primaryContainer)
+                }
+                Spacer(Modifier.width(8.dp))
+            }
+            Text(
+                if (state.nearbyOnline == 0) "nobody in range yet" else "${state.nearbyOnline} in range",
+                style = MaterialTheme.typography.labelMedium,
+                color = ink,
+            )
+        }
+    }
+}
+
+/** 24 dp avatar for the overlapping stack, ringed in the card color so neighbours separate. */
+@Composable
+private fun StackAvatar(peer: Peer, ringColor: androidx.compose.ui.graphics.Color) {
+    Box(Modifier.size(24.dp).clip(CircleShape).background(ringColor).padding(2.dp), contentAlignment = Alignment.Center) {
+        EmojiAvatar(peer.emoji, peer.colorIndex, 20.dp)
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ChannelChip(row: ConversationRow, onClick: () -> Unit, onLongClick: () -> Unit) {
+    val haptics = LocalHapticFeedback.current
+    val a11y = buildString {
+        append(row.title)
+        if (row.locked) append(", password protected")
+        if (row.pinned) append(", pinned")
+        if (row.muted) append(", muted")
+        if (row.unread > 0) append(", ${row.unread} unread")
+    }
+    Row(
+        Modifier
+            .heightIn(min = Dimens.MinTouch)
+            .wrapContentHeight()
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.secondaryContainer)
+            .combinedClickable(
+                onClickLabel = "Open channel",
+                onLongClickLabel = "Chat options",
+                onClick = onClick,
+                onLongClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onLongClick()
+                },
+            )
+            .semantics(mergeDescendants = true) { contentDescription = a11y }
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        val ink = MaterialTheme.colorScheme.onSecondaryContainer
+        if (row.locked) Icon(Icons.Filled.Lock, contentDescription = null, tint = ink, modifier = Modifier.size(14.dp))
+        Text(row.title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = ink)
+        if (row.muted) Icon(MurmurIcons.Muted, contentDescription = null, tint = ink.copy(alpha = 0.7f), modifier = Modifier.size(14.dp))
+        if (row.unread > 0) {
+            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondary, contentColor = MaterialTheme.colorScheme.onSecondary) {
+                Text(
+                    if (row.unread > 99) "99+" else "${row.unread}",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                )
+            }
+        }
+    }
+}
+
+/** Dashed "+ Join" chip at the end of the channel row. */
+@Composable
+private fun JoinChip(onClick: () -> Unit) {
+    val dash = MaterialTheme.colorScheme.outline
+    Row(
+        Modifier
+            .heightIn(min = Dimens.MinTouch)
+            .wrapContentHeight()
+            .clip(CircleShape)
+            .drawBehind {
+                val stroke = 1.dp.toPx()
+                drawRoundRect(
+                    color = dash,
+                    topLeft = Offset(stroke / 2, stroke / 2),
+                    size = Size(size.width - stroke, size.height - stroke),
+                    cornerRadius = CornerRadius(size.height / 2),
+                    style = Stroke(stroke, pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx()))),
+                )
+            }
+            .clickable(onClickLabel = "Join or create a channel", onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Filled.Add, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(6.dp))
+        Text("Join", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -462,7 +575,7 @@ private fun ConversationItem(row: ConversationRow, now: Long, onClick: () -> Uni
                 },
             )
             .semantics(mergeDescendants = true) { contentDescription = a11y }
-            .padding(horizontal = Dimens.ScreenPadding, vertical = 10.dp),
+            .padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (row.kind == ChatKind.DIRECT) {
@@ -489,6 +602,10 @@ private fun ConversationItem(row: ConversationRow, now: Long, onClick: () -> Uni
                     modifier = Modifier.weight(1f, fill = false),
                 )
                 if (row.peer?.favorite == true) Text(" ★", color = MurmurTheme.colors.hop, style = MaterialTheme.typography.titleSmall)
+                if (row.peer?.status == PeerStatus.VIA_MESH) {
+                    Spacer(Modifier.width(6.dp))
+                    HopBadge(row.peer.hops)
+                }
                 if (row.locked) {
                     Spacer(Modifier.width(4.dp))
                     Icon(Icons.Filled.Lock, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -517,8 +634,9 @@ private fun ConversationItem(row: ConversationRow, now: Long, onClick: () -> Uni
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 Format.relative(now, row.time),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                style = MurmurType.Mono,
+                fontSize = 10.5.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 val tint = MaterialTheme.colorScheme.onSurfaceVariant
@@ -698,9 +816,11 @@ private fun JoinChannelDialog(
 }
 
 private const val MIN_PASSWORD = 4
+private const val MAX_STACK = 5
 
 private val previewState = ChatsUiState(
     nearbyOnline = 4,
+    nearbyPeers = PreviewData.peers.filter { it.isOnline },
     nearbyPreview = "Kai: Found a great bench by the river",
     nearbyUnread = 3,
     nearbyTime = PreviewData.NOW - 120_000,

@@ -52,6 +52,25 @@ object Format {
         PeerStatus.OFFLINE, null -> "offline · sends when they're back"
     }
 
+    /**
+     * How a message reaches this person, for the mono route lines: "direct · strong signal",
+     * "via mesh · 3 hops", "last here 1 h ago · sends when back".
+     */
+    fun route(peer: Peer?, now: Long): String = when (peer?.status) {
+        PeerStatus.NEARBY -> "direct · ${signalWord(peer.rssi)}"
+        PeerStatus.VIA_MESH -> "via mesh · ${peer.hops} hop${if (peer.hops == 1) "" else "s"}"
+        PeerStatus.OFFLINE -> "last here ${lastSeen(now, peer.lastSeen)} · sends when back"
+        null -> "offline · sends when they're back"
+    }
+
+    /** "Luna", "Luna and Kai", "Luna, Kai and Mira", "Luna, Kai, Mira and 3 others". */
+    fun names(list: List<String>, max: Int = 3): String = when {
+        list.isEmpty() -> ""
+        list.size == 1 -> list[0]
+        list.size <= max + 1 -> list.dropLast(1).joinToString(", ") + " and " + list.last()
+        else -> list.take(max).joinToString(", ") + " and ${list.size - max} others"
+    }
+
     /** Short status for TalkBack on radar avatars and list rows. */
     fun peerA11y(peer: Peer): String = "${peer.name}${if (peer.favorite) ", favorite" else ""}, ${peerStatus(peer)}"
 

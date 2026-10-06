@@ -34,20 +34,27 @@ sending your data over the network.
 
 ## Features
 
-- **Radar**: an animated night-sky radar shows people nearby (by signal strength) and people reachable
-  through the mesh (with a hop count).
+- **Around** (home): an animated night-sky radar with names shows people nearby (by signal strength)
+  and people reachable through the mesh (with a hop count). Below it, #nearby and everyone around you,
+  each with how a message reaches them ("direct · strong signal", "via mesh · 3 hops"), plus one-tap
+  wave and message.
 - **#nearby**: a public room for everyone in range. Messages delete themselves after 24 hours.
 - **Channels**: `#topic` rooms anyone can join by name, optionally protected by a **password**
   (encrypted). **Invite** people with one tap; channels active nearby show up in the Join dialog.
-- **Direct messages**: end-to-end encrypted. Relays pass them on but can't read them. Ticks show
-  Sent → Delivered → Read; messages to someone offline wait on your phone (up to 24 h).
+- **Direct messages**: end-to-end encrypted. Relays pass them on but can't read them. A route strip
+  under the header shows the path (you → relays → them), and the newest message says how it's doing
+  in words ("Delivered · 3 hops", "Waiting · sends when Inès is back"); older ones show ticks.
+  Messages to someone offline wait on your phone (up to 24 h).
 - **Voice calls**: end-to-end encrypted, over Bluetooth only, with mute, speaker and a call timer.
   Incoming calls wake the phone and ring over the lock screen, like a normal phone call.
 - **Replies, reactions, @mentions, formatting**, delete for everyone, disappearing messages, waves,
   search and drafts.
-- **SOS alert** in #nearby: everyone in range gets a loud, red alert.
+- **SOS alert**: hold your own avatar in the middle of the radar for 2 seconds (or use #nearby's
+  menu): everyone in range gets a loud, red alert.
 - **Safety numbers** to check nobody is impersonating a friend; **favorites**, private **nicknames**
   and a **People** screen.
+- **You**: your profile and id, mesh health, and every setting in one tab. Panic wipe is
+  hold-to-confirm.
 - **Privacy**: block anyone, PIN **app lock**, hide message text in notifications, and a **panic
   wipe** that erases everything including your identity keys.
 - **Diagnostics** screen and a **Demo mode** (five pretend people) to try the app on one phone.
@@ -124,16 +131,16 @@ keep Bluetooth on. Open **Settings → Diagnostics** on any phone to see links, 
 **Copy** to share the log.
 
 1. **Direct chat (A and B side by side)**
-   - Within about 10–20 s each phone's Radar shows the other on an inner ring and the status pill says
-     "1 nearby".
+   - Within about 10–20 s each phone's radar (Around) shows the other on an inner ring and the status
+     pill says "1 nearby".
    - Send a message in **#nearby** from A: it appears on B.
-   - Open the other person from the Radar → **Message**. Type on A: B sees the typing dots. Send: A's
+   - Open the other person from Around → **Message**. Type on A: B sees the typing dots. Send: A's
      tick goes clock → ✓ → ✓✓; when B opens the chat, A's ticks turn mint (Read).
    - Open the peer sheet on both phones: the safety numbers must be identical. Mark as verified.
 2. **Three-phone relay (A and C out of each other's range)**
    - Put B in the middle and A and C far apart (different floors, or ~40–60 m apart outdoors; walls
      help). In Diagnostics, A must have a link to B but **not** to C.
-   - A's Radar shows C on the dashed outer ring with an amber "2 hops" badge ("via mesh · 2 hops").
+   - A's radar shows C on the dashed outer ring with an amber "2 hops" badge ("via mesh · 2 hops").
    - A sends a DM to C: it arrives on C, A's ticks reach ✓✓, and B's **Relayed** counter goes up
      (B cannot read it).
    - Post in #nearby on C: A receives it with a hop badge.
@@ -187,7 +194,7 @@ keep Bluetooth on. Open **Settings → Diagnostics** on any phone to see links, 
    - On A: #secret → ⋮ → **Invite people…** → Invite B. B gets "A invited you to #secret" in their
      chat with A → **Join #secret** → B sees A's next messages.
 
-Single phone? Turn on **Demo mode** (Settings → Diagnostics) to see the radar, chats, ticks, typing,
+Single phone? Turn on **Demo mode** (You → Diagnostics) to see the radar, chats, ticks, typing,
 replies, reactions, waves and a demo channel without other phones.
 
 ## How it's built

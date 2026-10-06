@@ -24,8 +24,23 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.sp
+import app.murmur.data.SosResult
+import app.murmur.ui.components.EmojiAvatar
+import app.murmur.ui.radar.AroundActions
+import app.murmur.ui.radar.AroundRoute
+import app.murmur.ui.theme.MurmurType
+import kotlinx.coroutines.delay
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
@@ -47,6 +62,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -55,7 +71,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
@@ -81,7 +96,6 @@ import app.murmur.ui.onboarding.PermState
 import app.murmur.ui.onboarding.rememberPermissionActions
 import app.murmur.ui.peer.PeerSheet
 import app.murmur.ui.radar.RadarField
-import app.murmur.ui.radar.RadarRoute
 import app.murmur.ui.settings.SettingsRoute
 import app.murmur.ui.theme.Dimens
 import app.murmur.ui.theme.MurmurTheme
@@ -91,7 +105,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-enum class MainTab { RADAR, CHATS, SETTINGS }
+enum class MainTab { AROUND, CHATS, YOU }
 
 enum class StatusKind(val isProblem: Boolean) {
     NEARBY(false),
@@ -106,17 +120,33 @@ enum class StatusKind(val isProblem: Boolean) {
 data class MainUiState(
     val status: StatusKind = StatusKind.SCANNING,
     val nearby: Int = 0,
+    /** Reachable only through other phones. */
+    val viaMesh: Int = 0,
+    /** Names of everyone online, for the "SOS sent" banner. */
+    val inRange: List<String> = emptyList(),
+    val myEmoji: String = "🙂",
+    val myColor: Int = 0,
     val totalUnread: Int = 0,
     val demoMode: Boolean = false,
     val bleSupported: Boolean = true,
 )
 
 class MainViewModel(private val c: AppContainer) : ViewModel() {
+    private data class MeshBits(val running: Boolean, val nearby: Int, val viaMesh: Int, val inRange: List<String>, val unread: Int)
+
     private val meshBits = combine(c.mesh.runtime, c.peers.peers, c.chats.totalUnread) { rt, peers, unread ->
-        Triple(rt != null, peers.count { it.status == PeerStatus.NEARBY && !it.blocked }, unread)
+        val visible = peers.filter { !it.blocked }
+        MeshBits(
+            running = rt != null,
+            nearby = visible.count { it.status == PeerStatus.NEARBY },
+            viaMesh = visible.count { it.status == PeerStatus.VIA_MESH },
+            inRange = visible.filter { it.isOnline }.map { it.name },
+            unread = unread,
+        )
     }
 
-    val state: StateFlow<MainUiState> = combine(c.system.state, meshBits, c.settingsState) { radio, (running, nearby, unread), s ->
+    val state: StateFlow<MainUiState> = combine(c.system.state, meshBits, c.settingsState) { radio, bits, s ->
+        val (running, nearby, viaMesh, inRange, unread) = bits
         val demo = s?.demoMode == true
         val kind = when {
             !radio.bleSupported -> if (!demo) StatusKind.UNSUPPORTED else if (nearby > 0) StatusKind.NEARBY else StatusKind.SCANNING
@@ -127,7 +157,17 @@ class MainViewModel(private val c: AppContainer) : ViewModel() {
             nearby > 0 -> StatusKind.NEARBY
             else -> StatusKind.SCANNING
         }
-        MainUiState(kind, nearby, unread, demo, radio.bleSupported)
+        MainUiState(
+            status = kind,
+            nearby = nearby,
+            viaMesh = viaMesh,
+            inRange = inRange,
+            myEmoji = s?.profile?.emoji ?: "🙂",
+            myColor = s?.profile?.colorIndex ?: 0,
+            totalUnread = unread,
+            demoMode = demo,
+            bleSupported = radio.bleSupported,
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MainUiState(bleSupported = c.bleSupported))
 
     fun startMesh() {
@@ -143,6 +183,12 @@ class MainViewModel(private val c: AppContainer) : ViewModel() {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun dismissSos(id: String) = c.chats.dismissSos(id)
+
+    /** Returns false when throttled (one wave per person every few seconds). */
+    suspend fun wave(peer: PeerId): Boolean = c.chats.wave(peer)
+
+    /** Emergency alert to everyone in range (an empty message: "Needs help nearby"). */
+    suspend fun sendSos(): SosResult = c.chats.sendSos("")
 }
 
 @Composable
@@ -157,14 +203,24 @@ fun MainRoute(
     val state by vm.state.collectAsStateWithLifecycle()
     val sos by vm.sos.collectAsStateWithLifecycle()
     val permissions = rememberPermissionActions()
-    var tab by rememberSaveable { mutableStateOf(MainTab.RADAR) }
+    var tab by rememberSaveable { mutableStateOf(MainTab.AROUND) }
     var sheetPeer by rememberSaveable { mutableStateOf<String?>(null) }
+    var sosSentAt by remember { mutableLongStateOf(0L) }
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
+    LaunchedEffect(sosSentAt) {
+        if (sosSentAt > 0) {
+            delay(SENT_BANNER_MILLIS)
+            sosSentAt = 0L
+        }
+    }
 
     if (!state.bleSupported && !state.demoMode) {
         UnsupportedScreen(onTryDemo = vm::enableDemo)
         return
     }
-    BackHandler(enabled = tab != MainTab.RADAR) { tab = MainTab.RADAR }
+    BackHandler(enabled = tab != MainTab.AROUND) { tab = MainTab.AROUND }
 
     MainScreen(
         state = state,
@@ -176,6 +232,13 @@ fun MainRoute(
             onOpenChat(NEARBY_CONVERSATION)
         },
         onDismissSos = { vm.dismissSos(it.id) },
+        sosSent = sosSentAt > 0,
+        onOpenSent = {
+            sosSentAt = 0L
+            onOpenChat(NEARBY_CONVERSATION)
+        },
+        onDismissSent = { sosSentAt = 0L },
+        snackbar = snackbar,
         onFix = {
             when (state.status) {
                 StatusKind.PERMISSIONS ->
@@ -189,9 +252,34 @@ fun MainRoute(
         },
     ) { current, padding ->
         when (current) {
-            MainTab.RADAR -> RadarRoute(padding, onPeerClick = { sheetPeer = it.toHex() }, onMessage = { onOpenChat(it.toHex()) }, onAllPeople = onPeople)
+            MainTab.AROUND -> AroundRoute(
+                padding,
+                AroundActions(
+                    onPeerClick = { sheetPeer = it.toHex() },
+                    onMessage = { onOpenChat(it.toHex()) },
+                    onWave = { peer ->
+                        scope.launch {
+                            snackbar.showSnackbar(if (vm.wave(peer.id)) "Waved at ${peer.name} 👋" else "You just waved. Give it a moment.")
+                        }
+                    },
+                    onOpenNearby = { onOpenChat(NEARBY_CONVERSATION) },
+                    onAllPeople = onPeople,
+                    onSos = {
+                        scope.launch {
+                            when (vm.sendSos()) {
+                                SosResult.SENT -> {
+                                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                                    sosSentAt = System.currentTimeMillis()
+                                }
+                                SosResult.TOO_SOON -> snackbar.showSnackbar("You sent an SOS less than 2 minutes ago")
+                                SosResult.NO_MESH -> snackbar.showSnackbar("The mesh is off, so the SOS can't be sent")
+                            }
+                        }
+                    },
+                ),
+            )
             MainTab.CHATS -> ChatsRoute(padding, onOpen = onOpenChat)
-            MainTab.SETTINGS -> SettingsRoute(padding, onEditProfile, onBlocked, onDiagnostics)
+            MainTab.YOU -> SettingsRoute(padding, onEditProfile, onBlocked, onDiagnostics)
         }
     }
 
@@ -214,21 +302,32 @@ fun MainScreen(
     sos: List<SosAlert> = emptyList(),
     onOpenSos: (SosAlert) -> Unit = {},
     onDismissSos: (SosAlert) -> Unit = {},
+    sosSent: Boolean = false,
+    onOpenSent: () -> Unit = {},
+    onDismissSent: () -> Unit = {},
+    snackbar: SnackbarHostState = remember { SnackbarHostState() },
     content: @Composable (MainTab, PaddingValues) -> Unit,
 ) {
     val reduce = MurmurTheme.reduceMotion
+    val barEdge = MaterialTheme.colorScheme.outlineVariant
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             Column {
-                StatusHeader(state, onFix)
+                StatusHeader(state, showTitle = tab == MainTab.AROUND, onFix = onFix)
+                SentSosBanner(sosSent, state.inRange, onOpenSent, onDismissSent)
                 SosBanner(sos, onOpenSos, onDismissSos)
             }
         },
         bottomBar = {
-            NavigationBar {
-                TabItem(MainTab.RADAR, tab, "Radar", MurmurIcons.Radar, 0, onTabChange)
-                TabItem(MainTab.CHATS, tab, "Chats", MurmurIcons.Chat, state.totalUnread, onTabChange)
-                TabItem(MainTab.SETTINGS, tab, "Settings", Icons.Filled.Settings, 0, onTabChange)
+            NavigationBar(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                tonalElevation = 0.dp,
+                modifier = Modifier.drawBehind { drawLine(barEdge, Offset.Zero, Offset(size.width, 0f), 1.dp.toPx()) },
+            ) {
+                TabItem(MainTab.AROUND, tab, "Around", 0, onTabChange) { Icon(MurmurIcons.Radar, contentDescription = null) }
+                TabItem(MainTab.CHATS, tab, "Chats", state.totalUnread, onTabChange) { Icon(MurmurIcons.Chat, contentDescription = null) }
+                TabItem(MainTab.YOU, tab, "You", 0, onTabChange) { EmojiAvatar(state.myEmoji, state.myColor, 24.dp) }
             }
         },
     ) { padding ->
@@ -252,9 +351,9 @@ private fun androidx.compose.foundation.layout.RowScope.TabItem(
     tab: MainTab,
     selectedTab: MainTab,
     label: String,
-    icon: ImageVector,
     badge: Int,
     onSelect: (MainTab) -> Unit,
+    icon: @Composable () -> Unit,
 ) {
     val selected = tab == selectedTab
     val bounce = remember { Animatable(1f) }
@@ -268,26 +367,33 @@ private fun androidx.compose.foundation.layout.RowScope.TabItem(
     NavigationBarItem(
         selected = selected,
         onClick = { onSelect(tab) },
-        label = { Text(label) },
+        label = { Text(label, fontWeight = FontWeight.SemiBold) },
+        colors = NavigationBarItemDefaults.colors(
+            selectedIconColor = MaterialTheme.colorScheme.onSurface,
+            selectedTextColor = MaterialTheme.colorScheme.onSurface,
+            indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        ),
         icon = {
             BadgedBox(badge = {
                 if (badge > 0) Badge { Text(if (badge > 99) "99+" else "$badge") }
             }) {
-                Icon(
-                    icon,
-                    contentDescription = if (badge > 0) "$label, $badge unread" else label,
-                    modifier = Modifier.graphicsLayer {
-                        scaleX = bounce.value
-                        scaleY = bounce.value
-                    },
-                )
+                Box(
+                    Modifier
+                        .semantics { contentDescription = if (badge > 0) "$label, $badge unread" else label }
+                        .graphicsLayer {
+                            scaleX = bounce.value
+                            scaleY = bounce.value
+                        },
+                ) { icon() }
             }
         },
     )
 }
 
 private fun statusText(state: MainUiState): String = when (state.status) {
-    StatusKind.NEARBY -> "${state.nearby} nearby"
+    StatusKind.NEARBY -> "${state.nearby} nearby" + if (state.viaMesh > 0) " · ${state.viaMesh} via mesh" else ""
     StatusKind.SCANNING -> "Scanning"
     StatusKind.PERMISSIONS -> "Permission needed"
     StatusKind.BLUETOOTH_OFF -> "Bluetooth off"
@@ -306,7 +412,7 @@ private fun bannerText(kind: StatusKind): Pair<String, String>? = when (kind) {
 }
 
 @Composable
-private fun StatusHeader(state: MainUiState, onFix: () -> Unit) {
+private fun StatusHeader(state: MainUiState, showTitle: Boolean, onFix: () -> Unit) {
     val dot = when {
         state.status == StatusKind.NEARBY -> MurmurTheme.colors.online
         state.status == StatusKind.SCANNING -> MaterialTheme.colorScheme.primary
@@ -314,19 +420,25 @@ private fun StatusHeader(state: MainUiState, onFix: () -> Unit) {
         else -> MaterialTheme.colorScheme.error
     }
     Column(
-        Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = Dimens.ScreenPadding, vertical = 8.dp),
+        Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(horizontal = 20.dp)
+            .padding(top = if (showTitle) 6.dp else 0.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Box(Modifier.fillMaxWidth()) {
+        // Chats and You draw their own big titles; Around (home) carries the app name and mesh chip.
+        if (showTitle) Box(Modifier.fillMaxWidth()) {
             Text(
                 "Murmur",
                 style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Bold,
                 modifier = Modifier.align(Alignment.CenterStart),
             )
             Surface(
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .semantics {
@@ -334,13 +446,13 @@ private fun StatusHeader(state: MainUiState, onFix: () -> Unit) {
                         contentDescription = "Status: ${statusText(state)}${if (state.demoMode) ", demo mode" else ""}"
                     },
             ) {
-                Row(Modifier.padding(start = 6.dp, end = 14.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.height(30.dp).padding(start = 4.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     PulsingDot(dot)
                     AnimatedContent(statusText(state), transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "pill") {
-                        Text(it, style = MaterialTheme.typography.labelLarge)
+                        Text(it, style = MurmurType.Mono, fontSize = 11.5.sp)
                     }
                     if (state.demoMode) {
-                        Text(" · demo", style = MaterialTheme.typography.labelLarge, color = MurmurTheme.colors.hop)
+                        Text(" · demo", style = MurmurType.Mono, fontSize = 11.5.sp, color = MurmurTheme.colors.hop)
                     }
                 }
             }
@@ -362,6 +474,46 @@ private fun StatusHeader(state: MainUiState, onFix: () -> Unit) {
                     Text(message, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                     Spacer(Modifier.width(8.dp))
                     FilledTonalButton(onClick = onFix) { Text(action) }
+                }
+            }
+        }
+    }
+}
+
+/** Confirmation after you hold your avatar for SOS: who it went to and where it's pinned. */
+@Composable
+private fun SentSosBanner(visible: Boolean, inRange: List<String>, onOpen: () -> Unit, onDismiss: () -> Unit) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = expandVertically(Motion.moveOrSnap(MurmurTheme.reduceMotion)) + fadeIn(),
+        exit = shrinkVertically() + fadeOut(),
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.error,
+            contentColor = MaterialTheme.colorScheme.onError,
+            shape = MaterialTheme.shapes.large,
+            shadowElevation = 6.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 4.dp)
+                .semantics { liveRegion = LiveRegionMode.Assertive },
+        ) {
+            Column(Modifier.padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 4.dp)) {
+                Text("🆘 SOS sent to everyone in range", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    when {
+                        inRange.isEmpty() -> "Nobody is in range right now. It's pinned in #nearby and relayed as people arrive."
+                        else -> "${Format.names(inRange)} get a loud alert. It's pinned in #nearby."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onError)) {
+                        Text("OK")
+                    }
+                    TextButton(onClick = onOpen, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onError)) {
+                        Text("Open #nearby", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
@@ -446,6 +598,9 @@ fun UnsupportedScreen(onTryDemo: () -> Unit) {
 }
 
 @Composable
+private const val SENT_BANNER_MILLIS = 8_000L
+
+@Composable
 private fun PreviewTabContent(padding: PaddingValues) {
     Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
         Text("Radar", color = Color.Gray)
@@ -455,7 +610,7 @@ private fun PreviewTabContent(padding: PaddingValues) {
 @Preview(name = "Main · light · 3 nearby", showBackground = true)
 @Composable
 private fun MainLightPreview() = MurmurTheme(ThemeMode.LIGHT) {
-    MainScreen(MainUiState(StatusKind.NEARBY, nearby = 3, totalUnread = 4), MainTab.RADAR, {}, {}) { _, p -> PreviewTabContent(p) }
+    MainScreen(MainUiState(StatusKind.NEARBY, nearby = 3, viaMesh = 1, totalUnread = 4, myEmoji = "🐧", myColor = 1), MainTab.AROUND, {}, {}) { _, p -> PreviewTabContent(p) }
 }
 
 @Preview(name = "Main · dark · Bluetooth off", showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
@@ -468,7 +623,7 @@ private fun MainDarkPreview() = MurmurTheme(ThemeMode.DARK) {
 @Composable
 private fun MainSosPreview() = MurmurTheme(ThemeMode.LIGHT) {
     val alert = SosAlert("a", PreviewData.kai.id, "Kai", "Twisted ankle by the north gate", PreviewData.NOW, 2, mine = false)
-    MainScreen(MainUiState(StatusKind.NEARBY, nearby = 3), MainTab.RADAR, {}, {}, sos = listOf(alert)) { _, p -> PreviewTabContent(p) }
+    MainScreen(MainUiState(StatusKind.NEARBY, nearby = 3), MainTab.AROUND, {}, {}, sos = listOf(alert)) { _, p -> PreviewTabContent(p) }
 }
 
 @Preview(name = "Unsupported · light", showBackground = true)

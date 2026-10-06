@@ -8,6 +8,7 @@ import app.murmur.core.protocol.Bytes
 import app.murmur.core.protocol.ChannelInvites
 import app.murmur.data.InviteResult
 import app.murmur.core.mesh.DeliveryStatus
+import app.murmur.core.mesh.PeerStatus
 import app.murmur.core.protocol.PeerId
 import app.murmur.core.text.Replies
 import app.murmur.data.Peer
@@ -80,6 +81,11 @@ data class MessageUi(
     /** The name everyone else knows the sender by (their own nickname, never my private alias). */
     val publicName: String = senderName,
     val invite: InviteUi? = null,
+    /**
+     * The newest outgoing DM says how it's doing in words ("Delivered · 3 hops", "Waiting · sends when
+     * Inès is back"); older ones keep the ticks.
+     */
+    val statusNote: StatusNote? = null,
 ) {
     val isText: Boolean get() = kind == MessageKind.TEXT
     val isInvite: Boolean get() = kind == MessageKind.INVITE
@@ -89,6 +95,9 @@ data class MessageUi(
     /** Text used when quoting or copying (the reply part only). */
     val plain: String get() = body
 }
+
+/** Delivery in words for the newest outgoing DM. [waiting] = queued until the person is back in range. */
+data class StatusNote(val text: String, val waiting: Boolean = false)
 
 sealed interface ChatItem {
     val key: String
@@ -123,6 +132,8 @@ data class ChatUiState(
     val searchResults: List<SearchHit>? = null,
     /** Channels: people in range who could be invited. */
     val invitePeople: List<Peer> = emptyList(),
+    val myEmoji: String = PeerRepository.DEFAULT_EMOJI,
+    val myColor: Int = 0,
 ) {
     val isNearby: Boolean get() = kind == ChatKind.NEARBY
     val isRoom: Boolean get() = kind != ChatKind.DIRECT
@@ -231,7 +242,7 @@ class ChatViewModel(private val c: AppContainer, private val conversationId: Str
                 append(if (channelEntity?.keyHex != null) "🔒 password channel" else "open channel")
                 append(" · $recentSenders active")
             }
-            ChatKind.DIRECT -> Format.peerStatus(peer) + if (timer > 0) " · ⏱ ${app.murmur.core.text.Disappearing.label(timer)}" else ""
+            ChatKind.DIRECT -> Format.route(peer, ex.now) + if (timer > 0) " · ⏱ ${app.murmur.core.text.Disappearing.label(timer)}" else ""
         }
         return ChatUiState(
             conversationId = conversationId,
@@ -243,7 +254,7 @@ class ChatViewModel(private val c: AppContainer, private val conversationId: Str
                 ChatKind.DIRECT -> peer?.let { Format.displayName(it, ct.peers) } ?: peerId?.let(PeerRepository::fallbackName) ?: "Chat"
             },
             subtitle = subtitle,
-            items = buildItems(ct, byId, ex.now, ex.channels.associate { it.name to it.keyHex }),
+            items = buildItems(ct, byId, peer, ex.now, ex.channels.associate { it.name to it.keyHex }),
             typing = peerId != null && peerId in ex.typing,
             blocked = peer?.blocked == true,
             loaded = true,
@@ -266,11 +277,18 @@ class ChatViewModel(private val c: AppContainer, private val conversationId: Str
             } else {
                 emptyList()
             },
+            myEmoji = ct.me?.emoji ?: PeerRepository.DEFAULT_EMOJI,
+            myColor = ct.me?.colorIndex ?: 0,
         )
     }
 
-    private fun buildItems(ct: Content, peers: Map<String, Peer>, now: Long, channelKeys: Map<String, String?>): List<ChatItem> {
+    private fun buildItems(ct: Content, peers: Map<String, Peer>, peer: Peer?, now: Long, channelKeys: Map<String, String?>): List<ChatItem> {
         val messages = ct.messages
+        val newestOutgoing = if (kind == ChatKind.DIRECT) {
+            messages.firstOrNull { it.outgoing && it.kind == MessageKind.TEXT && !it.retracted }?.id
+        } else {
+            null
+        }
         val reactionsByMessage = ct.reactions.groupBy { it.messageId }
         fun groupable(m: MessageEntity) = m.kind == MessageKind.TEXT && !m.retracted
         fun sameGroup(a: MessageEntity?, b: MessageEntity?): Boolean = a != null && b != null && groupable(a) && groupable(b) &&
@@ -315,6 +333,7 @@ class ChatViewModel(private val c: AppContainer, private val conversationId: Str
                     readAt = m.readAt,
                     expiresAt = m.expiresAt,
                     publicName = if (m.outgoing) ct.me?.nickname ?: m.senderNickname else m.senderNickname,
+                    statusNote = if (m.id == newestOutgoing) statusNote(DeliveryStatus.entries.getOrNull(m.status), peer) else null,
                     invite = if (m.kind == MessageKind.INVITE) {
                         ChannelInvites.parse(m.body)?.let { inv ->
                             val keyHex = inv.key?.let(Bytes::toHex)
@@ -330,6 +349,19 @@ class ChatViewModel(private val c: AppContainer, private val conversationId: Str
             }
         }
         return out
+    }
+
+    private fun statusNote(status: DeliveryStatus?, peer: Peer?): StatusNote? = when (status) {
+        DeliveryStatus.PENDING -> when {
+            peer?.isOnline == true -> StatusNote("Sending")
+            peer != null -> StatusNote("Waiting · sends when ${peer.name} is back", waiting = true)
+            else -> StatusNote("Waiting · sends when they're back", waiting = true)
+        }
+        DeliveryStatus.SENDING -> StatusNote("Sending")
+        DeliveryStatus.SENT -> StatusNote("Sent")
+        DeliveryStatus.DELIVERED -> StatusNote(if (peer?.status == PeerStatus.VIA_MESH) "Delivered · ${peer.hops} hops" else "Delivered")
+        DeliveryStatus.READ -> StatusNote("Read")
+        DeliveryStatus.FAILED, null -> null
     }
 
     // ------------------------------------------------------------------ actions
