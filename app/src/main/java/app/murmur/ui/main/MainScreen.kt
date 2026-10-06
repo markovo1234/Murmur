@@ -597,7 +597,6 @@ fun UnsupportedScreen(onTryDemo: () -> Unit) {
     }
 }
 
-@Composable
 private const val SENT_BANNER_MILLIS = 8_000L
 
 @Composable
