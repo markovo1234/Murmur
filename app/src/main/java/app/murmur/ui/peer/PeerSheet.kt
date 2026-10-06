@@ -156,8 +156,10 @@ fun PeerSheet(peerId: PeerId, onDismiss: () -> Unit, onMessage: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     var callProblem by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    // The call screen is drawn in the activity, under this sheet's window: close the sheet once it rings.
+    suspend fun call(): String? = vm.call().also { if (it == null) onDismiss() }
     val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) scope.launch { callProblem = vm.call() } else callProblem = "Murmur needs the microphone for calls."
+        if (granted) scope.launch { callProblem = call() } else callProblem = "Murmur needs the microphone for calls."
     }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -173,8 +175,9 @@ fun PeerSheet(peerId: PeerId, onDismiss: () -> Unit, onMessage: () -> Unit) {
                 onSetAlias = vm::setAlias,
                 onWave = vm::wave,
                 onCall = {
+                    callProblem = null
                     if (vm.hasMicPermission()) {
-                        vm.call()
+                        call()
                     } else {
                         micLauncher.launch(Manifest.permission.RECORD_AUDIO)
                         null

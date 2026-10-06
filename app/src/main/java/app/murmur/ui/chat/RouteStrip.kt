@@ -41,6 +41,7 @@ import app.murmur.data.Peer
 import app.murmur.data.PeerRepository
 import app.murmur.data.ThemeMode
 import app.murmur.ui.components.EmojiAvatar
+import app.murmur.ui.components.MurmurIcons
 import app.murmur.ui.components.PreviewData
 import app.murmur.ui.theme.MurmurTheme
 
@@ -91,7 +92,14 @@ fun RouteStrip(state: ChatUiState, modifier: Modifier = Modifier) {
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(12.dp))
+                // A lock only where it's true: DMs and password channels. Public rooms get the mesh icon.
+                val encrypted = state.kind == ChatKind.DIRECT || (state.kind == ChatKind.CHANNEL && state.channelLocked)
+                Icon(
+                    if (encrypted) Icons.Filled.Lock else MurmurIcons.Hub,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(12.dp),
+                )
                 Spacer(Modifier.width(6.dp))
                 Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }

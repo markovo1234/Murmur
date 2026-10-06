@@ -127,7 +127,7 @@ from the Android code (`core/…/CrossPlatformVectorsTest.kt`), so the two apps 
 ## Test plan with 2–3 phones
 
 Install Murmur on every phone, finish onboarding with different nicknames, grant all permissions and
-keep Bluetooth on. Open **Settings → Diagnostics** on any phone to see links, counters and the log; tap
+keep Bluetooth on. Open **You → Diagnostics** on any phone to see links, counters and the log; tap
 **Copy** to share the log.
 
 1. **Direct chat (A and B side by side)**
@@ -160,7 +160,7 @@ keep Bluetooth on. Open **Settings → Diagnostics** on any phone to see links, 
      reads "Murmur is active · N nearby" and has a **Stop** action.
    - Turn "Keep running in background" off: leaving the app stops the mesh.
 6. **Panic wipe**
-   - On B: Settings → **Hold to wipe everything** for 2 s (releasing early springs back).
+   - On B: You → **Hold to wipe everything** for 2 s (releasing early springs back).
    - B returns to onboarding with no chats. After onboarding again, B appears to the others as a new
      person, and the safety numbers are different.
 
@@ -174,7 +174,7 @@ keep Bluetooth on. Open **Settings → Diagnostics** on any phone to see links, 
      open) and **Disappearing messages →
      5 minutes** (B sees the change; new messages vanish on both phones 5 min after arriving).
    - #nearby menu → **Send SOS alert** → hold: B shows a red banner and a loud notification.
-   - Settings → **App lock** → set a PIN, leave the app and come back: the PIN pad appears.
+   - You → **App lock** → set a PIN, leave the app and come back: the PIN pad appears.
 8. **Voice calls (two phones with 1.2, side by side)**
    - Open A's chat with B → 📞. Allow the microphone. A shows "Calling…" then "Ringing…"; B rings.
    - Answer on B (in the app, or with **Answer** in the notification when B is on another app).

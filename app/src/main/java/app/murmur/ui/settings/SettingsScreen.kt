@@ -104,6 +104,8 @@ data class SettingsUiState(
     val directLinks: Int = 0,
     /** People reachable only through other phones. */
     val viaMesh: Int = 0,
+    /** The mesh is up and Bluetooth is on (not just "allowed to run in the background"). */
+    val meshRunning: Boolean = false,
     val lockEnabled: Boolean = false,
     val lockTimeoutMillis: Long = 0,
     val hideNotificationContent: Boolean = false,
@@ -118,7 +120,7 @@ data class SettingsUiState(
 )
 
 class SettingsViewModel(private val c: AppContainer) : ViewModel() {
-    val state: StateFlow<SettingsUiState> = combine(c.settingsState, c.peers.peers, c.identity) { s, peers, identity ->
+    val state: StateFlow<SettingsUiState> = combine(c.settingsState, c.peers.peers, c.identity, c.mesh.runtime, c.system.state) { s, peers, identity, rt, radio ->
         val settings = s ?: Settings()
         SettingsUiState(
             profile = settings.profile,
@@ -132,6 +134,7 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
             blockedCount = peers.count { it.blocked },
             directLinks = peers.count { it.status == PeerStatus.NEARBY && !it.blocked },
             viaMesh = peers.count { it.status == PeerStatus.VIA_MESH && !it.blocked },
+            meshRunning = rt != null && radio.bluetoothOn && radio.bluetoothPermissions,
             lockEnabled = settings.appLock.enabled,
             lockTimeoutMillis = settings.appLock.timeoutMillis,
             hideNotificationContent = settings.hideNotificationContent,
@@ -501,10 +504,14 @@ private fun MeshCard(state: SettingsUiState) {
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                PulsingDot(if (state.keepRunning) MurmurTheme.colors.online else MaterialTheme.colorScheme.outline)
+                PulsingDot(if (state.meshRunning) MurmurTheme.colors.online else MaterialTheme.colorScheme.outline)
                 Spacer(Modifier.width(6.dp))
                 Text(
-                    if (state.keepRunning) "Mesh running" else "Mesh runs only while Murmur is open",
+                    when {
+                        !state.meshRunning -> "Mesh is off"
+                        state.keepRunning -> "Mesh running"
+                        else -> "Mesh running while Murmur is open"
+                    },
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -660,6 +667,9 @@ private val previewState = SettingsUiState(
     profile = Profile("Sam", "🐧", 1),
     peerId = "3f9a0c12e4b7d655",
     blockedCount = 1,
+    directLinks = 2,
+    viaMesh = 1,
+    meshRunning = true,
     lockEnabled = true,
     lockTimeoutMillis = 60_000,
     relayedTotal = 1_284,
