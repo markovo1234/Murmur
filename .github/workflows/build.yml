@@ -35,8 +35,10 @@ jobs:
         run: |
           set -o pipefail
           ./gradlew --no-daemon --continue :core:test :app:lintDebug :app:dist 2>&1 | tee build.log || {
-            grep -E "^e: |error:|Error:|What went wrong|^> " build.log | head -60 | sed 's/^/::error::/'
-            find app/build/reports -name "lint-results*.txt" -exec cat {} \; 2>/dev/null | grep -E "Error|error" | head -40 | sed 's/^/::error::/'
+            { grep -E "^e: |^w: .*(error)|Error: |^\* What went wrong" -A2 build.log | grep -v "^--$" | head -120
+              find app/build -name "lint-results*.txt" -exec grep -E "Error|error:" {} + 2>/dev/null | head -40; } > errs.txt
+            msg=$(sed 's/%/%25/g' errs.txt | awk '{printf "%s%%0A", $0}')
+            echo "::error title=build::${msg}"
             exit 1
           }
 
