@@ -32,7 +32,13 @@ jobs:
         uses: gradle/actions/setup-gradle@v6
 
       - name: Test, lint and build
-        run: ./gradlew --no-daemon :core:test :app:lintDebug :app:dist
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon --continue :core:test :app:lintDebug :app:dist 2>&1 | tee build.log || {
+            grep -E "^e: |error:|Error:|What went wrong|^> " build.log | head -60 | sed 's/^/::error::/'
+            find app/build/reports -name "lint-results*.txt" -exec cat {} \; 2>/dev/null | grep -E "Error|error" | head -40 | sed 's/^/::error::/'
+            exit 1
+          }
 
       - name: Upload APKs
         uses: actions/upload-artifact@v7
