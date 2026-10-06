@@ -115,10 +115,10 @@ internal fun radarAngle(id: PeerId): Float {
 internal fun bobPhase(id: PeerId): Float = ((id.raw ushr 11) and 1023L).toFloat() / 1024f
 
 @Stable
-private class Slot(peer: Peer, val isNew: Boolean) {
+private class Slot(peer: Peer, val isNew: Boolean, minFraction: Float) {
     var peer by mutableStateOf(peer)
     val visible = MutableTransitionState(false).apply { targetState = true }
-    val radius = Animatable(radarRadiusFraction(peer))
+    val radius = Animatable(radarRadiusFraction(peer).coerceAtLeast(minFraction))
 }
 
 /**
@@ -247,7 +247,7 @@ private fun PeerLayer(
         for (p in peers) {
             val slot = slots[p.id]
             if (slot == null) {
-                slots[p.id] = Slot(p, isNew = initialized)
+                slots[p.id] = Slot(p, isNew = initialized, minFraction = minFraction)
                 arrived = arrived || initialized
             } else {
                 slot.peer = p
@@ -265,8 +265,7 @@ private fun PeerLayer(
             val peer = slot.peer
             val targetFraction = radarRadiusFraction(peer).coerceAtLeast(minFraction)
             LaunchedEffect(targetFraction) {
-                val target = targetFraction
-                if (reduce) slot.radius.snapTo(target) else slot.radius.animateTo(target, Motion.move())
+                if (reduce) slot.radius.snapTo(targetFraction) else slot.radius.animateTo(targetFraction, Motion.move())
             }
             if (!slot.visible.targetState && slot.visible.isIdle && !slot.visible.currentState) {
                 LaunchedEffect(Unit) { slots.remove(id) }
